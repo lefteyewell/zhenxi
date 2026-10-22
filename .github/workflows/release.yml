@@ -47,11 +47,13 @@ jobs:
 
       - name: 拉取离线模型（CLIP + geo）
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           New-Item -ItemType Directory -Force models/clip, models/geo | Out-Null
-          curl.exe -L --retry 3 -o models/clip/vit-b-16.img.fp32.onnx "$env:MODELS_BASE/vit-b-16.img.fp32.onnx"
-          curl.exe -L --retry 3 -o models/clip/vit-b-16.txt.fp32.onnx "$env:MODELS_BASE/vit-b-16.txt.fp32.onnx"
-          curl.exe -L --retry 3 -o models/geo/geo.sqlite "$env:MODELS_BASE/geo.sqlite"
+          curl.exe -L --retry 3 -H "Authorization: Bearer $env:GH_TOKEN" -o models/clip/vit-b-16.img.fp32.onnx "$env:MODELS_BASE/vit-b-16.img.fp32.onnx"
+          curl.exe -L --retry 3 -H "Authorization: Bearer $env:GH_TOKEN" -o models/clip/vit-b-16.txt.fp32.onnx "$env:MODELS_BASE/vit-b-16.txt.fp32.onnx"
+          curl.exe -L --retry 3 -H "Authorization: Bearer $env:GH_TOKEN" -o models/geo/geo.sqlite "$env:MODELS_BASE/geo.sqlite"
 
       - name: PyInstaller 打包
         run: python -m PyInstaller --noconfirm photo_manager.spec
@@ -110,11 +112,13 @@ jobs:
           pip install -r requirements.txt pyinstaller==6.21.0
 
       - name: 拉取离线模型（CLIP + geo）
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           mkdir -p models/clip models/geo
-          curl -L --retry 3 -o models/clip/vit-b-16.img.fp32.onnx "$MODELS_BASE/vit-b-16.img.fp32.onnx"
-          curl -L --retry 3 -o models/clip/vit-b-16.txt.fp32.onnx "$MODELS_BASE/vit-b-16.txt.fp32.onnx"
-          curl -L --retry 3 -o models/geo/geo.sqlite "$MODELS_BASE/geo.sqlite"
+          curl -L --retry 3 -H "Authorization: Bearer $GH_TOKEN" -o models/clip/vit-b-16.img.fp32.onnx "$MODELS_BASE/vit-b-16.img.fp32.onnx"
+          curl -L --retry 3 -H "Authorization: Bearer $GH_TOKEN" -o models/clip/vit-b-16.txt.fp32.onnx "$MODELS_BASE/vit-b-16.txt.fp32.onnx"
+          curl -L --retry 3 -H "Authorization: Bearer $GH_TOKEN" -o models/geo/geo.sqlite "$MODELS_BASE/geo.sqlite"
 
       - name: PyInstaller 打包
         run: python -m PyInstaller --noconfirm photo_manager.spec
@@ -158,11 +162,13 @@ jobs:
       - uses: docker/setup-qemu-action@v3
 
       - name: 拉取离线模型（CLIP + geo，挂载进容器）
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           mkdir -p models/clip models/geo
-          curl -L --retry 3 -o models/clip/vit-b-16.img.fp32.onnx "$MODELS_BASE/vit-b-16.img.fp32.onnx"
-          curl -L --retry 3 -o models/clip/vit-b-16.txt.fp32.onnx "$MODELS_BASE/vit-b-16.txt.fp32.onnx"
-          curl -L --retry 3 -o models/geo/geo.sqlite "$MODELS_BASE/geo.sqlite"
+          curl -L --retry 3 -H "Authorization: Bearer $GH_TOKEN" -o models/clip/vit-b-16.img.fp32.onnx "$MODELS_BASE/vit-b-16.img.fp32.onnx"
+          curl -L --retry 3 -H "Authorization: Bearer $GH_TOKEN" -o models/clip/vit-b-16.txt.fp32.onnx "$MODELS_BASE/vit-b-16.txt.fp32.onnx"
+          curl -L --retry 3 -H "Authorization: Bearer $GH_TOKEN" -o models/geo/geo.sqlite "$MODELS_BASE/geo.sqlite"
 
       # 复用 tools/arm/kylin.Dockerfile（debian:bullseye glibc 2.31，与麒麟 V10 对齐）
       - name: 构建 aarch64 构建镜像
