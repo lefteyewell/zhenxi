@@ -26,9 +26,6 @@ on:
 permissions:
   contents: write
 
-env:
-  MODELS_BASE: https://github.com/lefteyewell/zhenxi/releases/download/models-v1
-
 jobs:
   # ---------- Windows x86_64 ----------
   windows:
@@ -51,9 +48,15 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           New-Item -ItemType Directory -Force models/clip, models/geo | Out-Null
-          curl.exe -L --retry 3 -H "Authorization: Bearer $env:GH_TOKEN" -o models/clip/vit-b-16.img.fp32.onnx "$env:MODELS_BASE/vit-b-16.img.fp32.onnx"
-          curl.exe -L --retry 3 -H "Authorization: Bearer $env:GH_TOKEN" -o models/clip/vit-b-16.txt.fp32.onnx "$env:MODELS_BASE/vit-b-16.txt.fp32.onnx"
-          curl.exe -L --retry 3 -H "Authorization: Bearer $env:GH_TOKEN" -o models/geo/geo.sqlite "$env:MODELS_BASE/geo.sqlite"
+          gh release download models-v1 --repo lefteyewell/zhenxi --dir models-tmp --clobber
+          Move-Item models-tmp/vit-b-16.img.fp32.onnx models/clip/
+          Move-Item models-tmp/vit-b-16.txt.fp32.onnx models/clip/
+          Move-Item models-tmp/geo.sqlite models/geo/
+          foreach ($f in @('models/clip/vit-b-16.img.fp32.onnx', 'models/clip/vit-b-16.txt.fp32.onnx')) {
+            if ((Get-Item $f).Length -lt 300MB) { throw "模型文件过小，下载失败: $f" }
+          }
+          if ((Get-Item models/geo/geo.sqlite).Length -lt 20MB) { throw 'geo.sqlite 过小，下载失败' }
+          Get-ChildItem models/clip, models/geo | Select-Object Name, Length
 
       - name: PyInstaller 打包
         run: python -m PyInstaller --noconfirm photo_manager.spec
@@ -118,9 +121,14 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           mkdir -p models/clip models/geo
-          curl -L --retry 3 -H "Authorization: Bearer $GH_TOKEN" -o models/clip/vit-b-16.img.fp32.onnx "$MODELS_BASE/vit-b-16.img.fp32.onnx"
-          curl -L --retry 3 -H "Authorization: Bearer $GH_TOKEN" -o models/clip/vit-b-16.txt.fp32.onnx "$MODELS_BASE/vit-b-16.txt.fp32.onnx"
-          curl -L --retry 3 -H "Authorization: Bearer $GH_TOKEN" -o models/geo/geo.sqlite "$MODELS_BASE/geo.sqlite"
+          gh release download models-v1 --repo lefteyewell/zhenxi --dir models-tmp --clobber
+          mv models-tmp/vit-b-16.img.fp32.onnx models/clip/
+          mv models-tmp/vit-b-16.txt.fp32.onnx models/clip/
+          mv models-tmp/geo.sqlite models/geo/
+          [ "$(stat -c%s models/clip/vit-b-16.img.fp32.onnx)" -gt 300000000 ] || { echo 'img.onnx 过小，下载失败'; exit 1; }
+          [ "$(stat -c%s models/clip/vit-b-16.txt.fp32.onnx)" -gt 350000000 ] || { echo 'txt.onnx 过小，下载失败'; exit 1; }
+          [ "$(stat -c%s models/geo/geo.sqlite)" -gt 20000000 ] || { echo 'geo.sqlite 过小，下载失败'; exit 1; }
+          ls -l models/clip models/geo
 
       - name: PyInstaller 打包
         run: python -m PyInstaller --noconfirm photo_manager.spec
@@ -168,9 +176,14 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           mkdir -p models/clip models/geo
-          curl -L --retry 3 -H "Authorization: Bearer $GH_TOKEN" -o models/clip/vit-b-16.img.fp32.onnx "$MODELS_BASE/vit-b-16.img.fp32.onnx"
-          curl -L --retry 3 -H "Authorization: Bearer $GH_TOKEN" -o models/clip/vit-b-16.txt.fp32.onnx "$MODELS_BASE/vit-b-16.txt.fp32.onnx"
-          curl -L --retry 3 -H "Authorization: Bearer $GH_TOKEN" -o models/geo/geo.sqlite "$MODELS_BASE/geo.sqlite"
+          gh release download models-v1 --repo lefteyewell/zhenxi --dir models-tmp --clobber
+          mv models-tmp/vit-b-16.img.fp32.onnx models/clip/
+          mv models-tmp/vit-b-16.txt.fp32.onnx models/clip/
+          mv models-tmp/geo.sqlite models/geo/
+          [ "$(stat -c%s models/clip/vit-b-16.img.fp32.onnx)" -gt 300000000 ] || { echo 'img.onnx 过小，下载失败'; exit 1; }
+          [ "$(stat -c%s models/clip/vit-b-16.txt.fp32.onnx)" -gt 350000000 ] || { echo 'txt.onnx 过小，下载失败'; exit 1; }
+          [ "$(stat -c%s models/geo/geo.sqlite)" -gt 20000000 ] || { echo 'geo.sqlite 过小，下载失败'; exit 1; }
+          ls -l models/clip models/geo
 
       # 复用 tools/arm/kylin.Dockerfile（debian:bullseye glibc 2.31，与麒麟 V10 对齐）
       - name: 构建 aarch64 构建镜像
