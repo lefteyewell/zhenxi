@@ -94,9 +94,8 @@ tests/
   test_pipeline.py / test_cluster.py / test_faces.py / test_search.py /
   test_stage3.py / test_people_tags.py / test_autotag.py / test_c3_features.py
 docs/
-  stage0~4_report.md     各阶段验收报告
-  agents/PLAN_C1.md / PLAN_C2.md   C 系列迭代方案
-  kylin_test_guide.md    银河麒麟 aarch64 测试指南
+  DEVELOPMENT.md         开发文档（本文件）
+  DEPENDENCIES.md        依赖清单与系统级库说明
 ```
 
 ---
@@ -214,9 +213,9 @@ python tools\build_win.ps1        # 1) 装 PyInstaller 2) 按 photo_manager.spec
 打包规格在仓库根 `photo_manager.spec`（PyInstaller）；`tools/trim_dist.py` 用于分发裁剪。
 
 **银河麒麟 V10（aarch64 / 飞腾·鲲鹏）**
-通过 `tools/setup_docker.ps1` / `setup_wsl*.ps1` 准备容器或子系统，模型与依赖离线内置；详见 `docs/kylin_test_guide.md`。
+通过 `tools/setup_docker.ps1` / `setup_wsl*.ps1` 准备容器或子系统，在 aarch64 容器内执行 `tools/arm/build_kylin.sh` 打包（CI 按 `.github/workflows/release.yml` 自动构建）。
 
-**模型准备**：`python tools/fetch_models.py` 下载 YuNet / SFace / PP-OCRv4 等 ONNX 到 `models/`（开发环境 `models_dir()` 默认取 `项目根/models`，打包后取 `_internal/models`）。
+**模型准备**：人脸模型（YuNet / SFace）已随仓库内置 `models/`；CLIP 与 geo.sqlite 从 [models-v1 Release](https://github.com/lefteyewell/zhenxi/releases/tag/models-v1) 下载后放入对应目录（开发环境 `models_dir()` 默认取 `项目根/models`，打包后取 `_internal/models`）。
 
 ---
 

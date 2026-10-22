@@ -23,6 +23,14 @@
   （源码、发行版下载、问题反馈）——源码获取与官方渠道以此为准
 - 联系邮箱见文末「许可与版权」
 
+## 下载安装
+
+**普通用户**：到 [Releases 页面](https://github.com/lefteyewell/zhenxi/releases) 下载对应平台的安装包
+（Windows / Linux x64 / 银河麒麟 aarch64），AI 模型已全部内置，解压即用。
+
+**从源码构建的开发者**：除源码外还需下载 3 个离线模型文件（CLIP 编码器 ×2 + 离线地理编码库），
+见 [离线模型 models-v1](https://github.com/lefteyewell/zhenxi/releases/tag/models-v1) 的下载表与放置路径说明。
+
 ## 运行环境
 
 - Windows 10/11 x86_64、银河麒麟 V10 桌面版 aarch64（飞腾 / 鲲鹏）
@@ -66,7 +74,7 @@ photo_manager/          应用主包
   ui/qml/               QML 界面（theme 主题 / components 组件 / pages 页面）
 tools/                  打包(build_win.ps1)、验收(gui_check/accept_real/acceptance)、图集与基准生成、模型获取、aarch64 容器/子系统验证、分发裁剪(trim_dist)
 tests/                  smoke_ui + test_pipeline/cluster/faces/search/stage3/people_tags/autotag/c3_features
-docs/                   各阶段验收报告 + DEVELOPMENT.md（开发文档）+ agents/ 迭代方案
+docs/                   开发文档（DEVELOPMENT.md）+ 依赖说明（DEPENDENCIES.md）+ GPLv3 中文参考译文
 ```
 
 详见 **[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)**：架构分层、数据模型、LibraryBridge 桥接 API、QML 结构、测试与构建、开发约定（popupGate 门禁、无删除红线、PopupDragHandle 用 `var` target 等易踩坑）。
@@ -75,7 +83,7 @@ docs/                   各阶段验收报告 + DEVELOPMENT.md（开发文档）
 
 **Windows**：`pip install -r requirements.txt` 后 `python tools\build_win.ps1`（按 `photo_manager.spec` 打包并 `--smoke` 自检，产物 `dist\PhotoManager\PhotoManager.exe`）。
 
-**银河麒麟 V10 (aarch64)**：经 `tools/setup_docker.ps1` / `setup_wsl*.ps1` 准备离线环境，详见 `docs/kylin_test_guide.md`。模型用 `python tools/fetch_models.py` 下载到 `models/`。
+**银河麒麟 V10 (aarch64)**：经 `tools/setup_docker.ps1` / `setup_wsl*.ps1` 准备离线环境，在 aarch64 容器内执行 `tools/arm/build_kylin.sh` 打包（CI 亦按此流程自动构建，见 `.github/workflows/release.yml`）。人脸模型已随仓库内置 `models/`；CLIP 与地理编码库从 [models-v1 Release](https://github.com/lefteyewell/zhenxi/releases/tag/models-v1) 下载后放入对应目录。
 
 ## 测试
 
@@ -93,7 +101,7 @@ python tools/acceptance.py                               # 端到端验收
 - [x] 1. 扫描入库 / EXIF / 缩略图 / 基础搜索 / 导出引擎
 - [x] 2. OCR / 人脸 / 自动归类 / 智能相册
 - [x] 3. 双机元数据同步 / 重复检测 / 高级搜索 / 备份
-- [x] 4. 百万级性能优化 / 弱机适配 / 验收联调（详情见 docs/stage4_report.md）
+- [x] 4. 百万级性能优化 / 弱机适配 / 验收联调
 
 ## 扩展功能（C 系列迭代，均已全量自检）
 
