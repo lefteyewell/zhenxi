@@ -1,0 +1,15 @@
+GalleryPage 1.0 GalleryPage.qml
+InfoPanel 1.0 InfoPanel.qml
+EventsPage 1.0 EventsPage.qml
+DuplicatesPage 1.0 DuplicatesPage.qml
+PhotoViewer 1.0 PhotoViewer.qml
+CategoryPage 1.0 CategoryPage.qml
+TimelinePage 1.0 TimelinePage.qml
+StatsPage 1.0 StatsPage.qml
+TrashPage 1.0 TrashPage.qml
+MapPage 1.0 MapPage.qml
+OnThisDayPage 1.0 OnThisDayPage.qml
+ArchivePage 1.0 ArchivePage.qml
+TagTreePage 1.0 TagTreePage.qml
+AlbumsPage 1.0 AlbumsPage.qml
+ExportHistoryPage 1.0 ExportHistoryPage.qml

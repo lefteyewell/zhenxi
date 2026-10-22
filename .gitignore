@@ -1,0 +1,62 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+dist/
+dist_old*/
+build/
+build_arm/
+
+# 离线模型
+packages/
+
+# 日志与验证产物
+logs/
+tools/arm/models/
+tools/arm/face_test.jpg
+tools/gc_*.txt
+
+# 测试数据 / 生成数据（绝不入库：避免体积膨胀与泄露隐私照片）
+# 说明：test_data 为自动生成的测试图集，data 为本地数据库，models 为离线 AI 模型权重，
+# 三者均不随代码提交；photo_manager/models/（Python 源码包）不受此规则影响，正常入库。
+.cache/
+test_data/
+test_data*/
+test_data_real/
+data/
+# 大体积权重（CLIP/geo）不入库；两个人脸小模型随仓库分发（OpenCV Zoo，Apache-2.0）
+models/*
+!models/face_detection_yunet_2023mar.onnx
+!models/face_recognition_sface_2021dec.onnx
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# 系统
+Thumbs.db
+.DS_Store
+dist_arm/
+build_arm/*.log
+*.log
+
+# WorkBuddy 项目数据（memory / 对话蒸馏产物）
+.workbuddy/
+
+# 测试用活动照片（Wikimedia Commons 下载，体积大不入库）
+test_data_conference/
+
+# 构建产物与测试样张（不入库）
+build_kylin/
+dist_arm_kylin/
+SampleRAW/
+test_album/
+RAW_Samples_AllCameras.zip
+where_assets.txt
