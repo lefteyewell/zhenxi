@@ -16,9 +16,12 @@ try {
     wsl.exe --update 2>&1 | Out-File -FilePath $log -Append -Encoding UTF8
     Log "退出码: $LASTEXITCODE"
 
-    Log "[2/3] 导入 Ubuntu-22.04（tar.gz -> D:\wsl\Ubuntu-22.04）..."
-    New-Item -ItemType Directory -Force -Path "D:\wsl\Ubuntu-22.04" | Out-Null
-    wsl.exe --import Ubuntu-22.04 "D:\wsl\Ubuntu-22.04" "C:\Users\admin\AppData\Local\Temp\opencode\ubuntu-jammy-wsl-amd64.rootfs.tar.gz" --version 2 2>&1 | Out-File -FilePath $log -Append -Encoding UTF8
+    # 用法：把 ubuntu-jammy-wsl-amd64.rootfs.tar.gz 放到系统临时目录后运行本脚本
+    $wslDir = "D:\wsl\Ubuntu-22.04"
+    $rootfs = Join-Path $env:TEMP "ubuntu-jammy-wsl-amd64.rootfs.tar.gz"
+    Log "[2/3] 导入 Ubuntu-22.04（tar.gz -> $wslDir）..."
+    New-Item -ItemType Directory -Force -Path $wslDir | Out-Null
+    wsl.exe --import Ubuntu-22.04 $wslDir $rootfs --version 2 2>&1 | Out-File -FilePath $log -Append -Encoding UTF8
     Log "退出码: $LASTEXITCODE"
 
     Log "[3/3] 验证发行版列表..."
