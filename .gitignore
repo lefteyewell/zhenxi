@@ -26,10 +26,15 @@ test_data/
 test_data*/
 test_data_real/
 data/
-# 大体积权重（CLIP/geo）不入库；两个人脸小模型随仓库分发（OpenCV Zoo，Apache-2.0）
+# 大体积权重（CLIP onnx/geo）不入库；人脸小模型与 CLIP 配置随仓库分发
 models/*
 !models/face_detection_yunet_2023mar.onnx
 !models/face_recognition_sface_2021dec.onnx
+!models/clip
+models/clip/*
+!models/clip/config.json
+!models/clip/preprocessor_config.json
+!models/clip/vocab.txt
 *.db
 *.db-journal
 *.db-wal
