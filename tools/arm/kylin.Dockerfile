@@ -7,6 +7,9 @@
 #     photo-build-arm64:kylin bash tools/arm/build_kylin_compat.sh
 FROM docker.m.daocloud.io/library/debian:bullseye
 
+# CI（GitHub 海外机器）构建时用 --build-arg PIP_INDEX_URL=https://pypi.org/simple 覆盖
+ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+
 # bullseye 已归档（2026-08 EOL），用官方 archive.debian.org（http 免证书）
 RUN printf 'deb http://archive.debian.org/debian bullseye main\ndeb http://archive.debian.org/debian-security bullseye-security main\n' > /etc/apt/sources.list
 
@@ -19,10 +22,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgssapi-krb5-2 libpcre2-16-0 libpulse0 libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
-RUN python3.9 -m pip install --no-cache-dir --upgrade pip -i https://pypi.tuna.tsinghua.edu.cn/simple
+RUN python3.9 -m pip install --no-cache-dir --upgrade pip -i ${PIP_INDEX_URL}
 
 RUN python3.9 -m pip install --no-cache-dir \
-    -i https://pypi.tuna.tsinghua.edu.cn/simple \
+    -i ${PIP_INDEX_URL} \
     "numpy<2.1" "Pillow" "piexif" "pillow-heif" "rawpy" "exifread" \
     "opencv-python-headless" "onnxruntime" "rapidocr-onnxruntime" \
     "PySide6" "PyInstaller==6.21.0"

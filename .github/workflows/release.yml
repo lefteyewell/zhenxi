@@ -59,6 +59,8 @@ jobs:
         run: python -m PyInstaller --noconfirm photo_manager.spec
 
       - name: 体积裁剪
+        env:
+          PYTHONUTF8: '1'
         run: python tools/trim_package.py dist/PhotoManager
 
       - name: 冒烟自检
@@ -124,7 +126,7 @@ jobs:
         run: python -m PyInstaller --noconfirm photo_manager.spec
 
       - name: 体积裁剪
-        run: python tools/trim_package.py dist/PhotoManager
+        run: python tools/trim_dist.py dist/PhotoManager
 
       # CI 无显示环境，offscreen 冒烟偶发环境性失败，不阻断发布
       - name: 冒烟自检（不阻断）
@@ -172,7 +174,7 @@ jobs:
 
       # 复用 tools/arm/kylin.Dockerfile（debian:bullseye glibc 2.31，与麒麟 V10 对齐）
       - name: 构建 aarch64 构建镜像
-        run: docker build --platform linux/arm64 -f tools/arm/kylin.Dockerfile -t pm-kylin tools/arm
+        run: docker build --platform linux/arm64 --build-arg PIP_INDEX_URL=https://pypi.org/simple -f tools/arm/kylin.Dockerfile -t pm-kylin tools/arm
 
       - name: 容器内 PyInstaller 打包
         run: |
@@ -184,7 +186,7 @@ jobs:
               python3.9 -m PyInstaller --noconfirm \
                 --distpath dist_arm --workpath build_arm \
                 photo_manager.spec
-              python3.9 tools/trim_package.py dist_arm/PhotoManager
+              python3.9 tools/trim_dist.py dist_arm/PhotoManager
               tar -czf /work/PhotoManager-kylin-aarch64.tar.gz -C dist_arm PhotoManager
             '
 
