@@ -21,19 +21,23 @@ WHITELIST = re.compile(
 )
 
 
+MISSING = set()
+
+
 def ldd_deps(path: Path):
     out = subprocess.run(["ldd", str(path)], capture_output=True, text=True).stdout
     deps = []
     for line in out.splitlines():
         line = line.strip()
         if "=>" in line:
-            path_part = line.split("=>", 1)[1].strip().split(" ")[0]
+            name, rest = line.split("=>", 1)
+            rest = rest.strip()
+            if rest.startswith("not found"):
+                MISSING.add(name.strip())  # 容器里也缺的库，汇报但不阻塞
+                continue
+            deps.append(Path(rest.split(" ")[0]))
         elif line.startswith("/"):
-            path_part = line.split(" ")[0]
-        else:
-            path_part = ""
-        if path_part and path_part != "not found":
-            deps.append(Path(path_part))
+            deps.append(Path(line.split(" ")[0]))
     return deps
 
 
@@ -71,6 +75,10 @@ def main():
     for name in sorted(copied):
         print("  ", name)
     print(f"合计 {len(copied)} 个。闭包完成。")
+    if MISSING:
+        print("⚠️ 容器内也缺失、无法打包的库（需关注目标机是否自带）:")
+        for m in sorted(MISSING):
+            print("  ", m)
     return 0
 
 
