@@ -207,6 +207,22 @@ jobs:
               python tools/trim_dist.py dist_arm/PhotoManager
             '
 
+      # 修复麒麟真机缺 libnsl.so.2 / gstreamer 导致 QtMultimedia 插件加载失败、启动即崩：
+      # 内置 gstreamer 插件 + 递归收集运行库闭包进 _internal（main.py 启动时注入 GST 插件路径）
+      # ⚠️ 此步骤曾因同步覆盖被静默丢失，导致新包在真机原样崩溃——勿删！
+      - name: 收集运行库闭包 + 内置 gstreamer 插件
+        run: |
+          docker run --rm --platform linux/arm64 \
+            -v "$PWD":/work -w /work \
+            pm-kylin bash -c '
+              set -e
+              mkdir -p dist_arm/PhotoManager/_internal/gstreamer-1.0
+              cp /usr/lib/*/gstreamer-1.0/*.so dist_arm/PhotoManager/_internal/gstreamer-1.0/ || true
+              python tools/arm/bundle_runtime_libs.py dist_arm/PhotoManager/_internal
+              test -f dist_arm/PhotoManager/_internal/libnsl.so.2 || { echo "libnsl.so.2 未打包，闭包收集失败"; exit 1; }
+              ls dist_arm/PhotoManager/_internal | grep -E "libnsl|libgst" | head -8
+            '
+
       # 打包后必做冒烟自检：offscreen 启动全部 QML（QEMU 下较慢，给足超时）
       - name: 容器内冒烟自检（启动即崩将在此暴露）
         run: |
