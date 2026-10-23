@@ -1,8 +1,10 @@
 # 真昔（PhotoManager）三平台自动打包
 #
 # 触发方式：
-#   1. 推送 v* 标签（如 v0.5.67）→ 构建 + 自动发布到该标签的 Release
-#   2. Actions 页面手动 workflow_dispatch → 只构建，产物在 Artifacts 下载（不发布）
+#   1. 推送 v* 标签（如 v0.5.67）→ 三平台全量构建 + 自动发布到该标签的 Release
+#      （发版必须全量：保证三个包出自同一份代码，版本不错位）
+#   2. Actions 页面手动 workflow_dispatch → 可选择平台（调试用），
+#      只构建，产物在 Artifacts 下载（不发布）
 #
 # 前置条件（一次性人工操作）：
 #   在本仓库创建 tag models-v1 的 Release，上传三个文件（源码见 models/ 与 models/geo）：
@@ -22,6 +24,16 @@ on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      platforms:
+        description: '手动触发时选择打包平台（推 v* 标签时始终三平台全量）'
+        type: choice
+        default: 'all'
+        options:
+          - all
+          - windows
+          - linux
+          - kylin
 
 permissions:
   contents: write
@@ -29,6 +41,7 @@ permissions:
 jobs:
   # ---------- Windows x86_64 ----------
   windows:
+    if: ${{ github.event_name == 'push' || inputs.platforms == 'all' || inputs.platforms == 'windows' }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -95,6 +108,7 @@ jobs:
 
   # ---------- Linux x86_64 ----------
   linux:
+    if: ${{ github.event_name == 'push' || inputs.platforms == 'all' || inputs.platforms == 'linux' }}
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -163,6 +177,7 @@ jobs:
 
   # ---------- 银河麒麟 V10 aarch64 ----------
   kylin:
+    if: ${{ github.event_name == 'push' || inputs.platforms == 'all' || inputs.platforms == 'kylin' }}
     runs-on: ubuntu-latest
     timeout-minutes: 350
     steps:
