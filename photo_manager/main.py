@@ -8,6 +8,15 @@ import os
 import sys
 from pathlib import Path
 
+# Linux 打包版：若随包分发了 gstreamer 运行库（_internal/gstreamer-1.0），
+# 在 Qt 初始化前注入插件搜索路径，保证视频内嵌播放不依赖目标机的系统组件。
+if sys.platform.startswith("linux"):
+    _meipass = getattr(sys, "_MEIPASS", None)
+    if _meipass:
+        _gst_dir = Path(_meipass) / "gstreamer-1.0"
+        if _gst_dir.is_dir():
+            os.environ.setdefault("GST_PLUGIN_SYSTEM_PATH", str(_gst_dir))
+
 from PySide6.QtCore import QLockFile, QObject, QCoreApplication, QStandardPaths, QUrl, Slot
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtGui import QColor, QGuiApplication, QIcon, QLinearGradient, QPainter, QPainterPath, QPixmap
