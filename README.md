@@ -31,6 +31,18 @@
 **从源码构建的开发者**：除源码外还需下载 3 个离线模型文件（CLIP 编码器 ×2 + 离线地理编码库），
 见 [离线模型 models-v1](https://github.com/lefteyewell/zhenxi/releases/tag/models-v1) 的下载表与放置路径说明。
 
+**国内下载加速**：GitHub 直连较慢时，可在下载链接前加镜像前缀，例如：
+
+```
+https://ghfast.top/https://github.com/lefteyewell/zhenxi/releases/download/v0.5.67/PhotoManager-0.5.67-win64.zip
+```
+
+常用前缀：`https://ghfast.top/`、`https://gh-proxy.com/` 等（公益镜像时好时坏，失效请更换一个）。
+
+> ⚠️ 安全提示：镜像前缀**只建议用于公开文件的下载**；不要在经过镜像的页面上登录 GitHub
+> 或访问私有仓库；浏览器"GitHub 加速"类扩展有读取会话凭据的前科，如需安装请认准开源、
+> 大用户量、最小权限的扩展，并务必开启 GitHub 两步验证（2FA）。
+
 ## 运行环境
 
 - Windows 10/11 x86_64、银河麒麟 V10 桌面版 aarch64（飞腾 / 鲲鹏）
