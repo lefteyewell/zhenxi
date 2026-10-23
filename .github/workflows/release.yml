@@ -185,9 +185,13 @@ jobs:
           [ "$(stat -c%s models/geo/geo.sqlite)" -gt 20000000 ] || { echo 'geo.sqlite 过小，下载失败'; exit 1; }
           ls -l models/clip models/geo
 
-      # 复用 tools/arm/kylin.Dockerfile（debian:bullseye glibc 2.31，与麒麟 V10 对齐）
+      # python:3.11-slim-bullseye = glibc 2.31（麒麟 V10 兼容）+ Python 3.11（PySide6 6.12 可用）
+      # 教训：bullseye 官方源最高 python3.9，PySide6 6.9+ 不支持 3.9，会静默装 6.8 导致真机启动即崩
       - name: 构建 aarch64 构建镜像
-        run: docker build --platform linux/arm64 --build-arg PIP_INDEX_URL=https://pypi.org/simple -f tools/arm/kylin.Dockerfile -t pm-kylin tools/arm
+        run: docker build --platform linux/arm64 \
+               --build-arg PY_IMAGE=python:3.11-slim-bullseye \
+               --build-arg PIP_INDEX_URL=https://pypi.org/simple \
+               -f tools/arm/kylin.Dockerfile -t pm-kylin .
 
       - name: 容器内 PyInstaller 打包
         run: |
@@ -196,19 +200,28 @@ jobs:
             -u "$(id -u):$(id -g)" -e HOME=/tmp \
             pm-kylin bash -c '
               set -e
-              python3.9 -m PyInstaller --noconfirm \
+              python -m PyInstaller --noconfirm \
                 --distpath dist_arm --workpath build_arm \
                 photo_manager.spec
-              python3.9 tools/trim_dist.py dist_arm/PhotoManager
-              tar -czf /work/PhotoManager-kylin-aarch64.tar.gz -C dist_arm PhotoManager
+              python tools/trim_dist.py dist_arm/PhotoManager
             '
 
-      - name: 读取版本号并重命名
+      # 打包后必做冒烟自检：offscreen 启动全部 QML（QEMU 下较慢，给足超时）
+      - name: 容器内冒烟自检（启动即崩将在此暴露）
+        run: |
+          docker run --rm --platform linux/arm64 \
+            -v "$PWD":/work -w /work/dist_arm/PhotoManager \
+            -u "$(id -u):$(id -g)" -e HOME=/tmp \
+            -e QT_QPA_PLATFORM=offscreen \
+            pm-kylin bash -c 'timeout 600 ./PhotoManager --smoke && echo SMOKE_OK'
+
+      - name: 读取版本号并打 tar 包
         id: ver
         run: |
           VER=$(python3 -c "import re;print(re.search(r'APP_VERSION\s*=\s*\"([^\"]+)\"', open('photo_manager/__init__.py', encoding='utf-8').read()).group(1))")
           echo "version=$VER" >> "$GITHUB_OUTPUT"
-          mv PhotoManager-kylin-aarch64.tar.gz "PhotoManager-${VER}-kylin-aarch64.tar.gz"
+          tar -czf "PhotoManager-${VER}-kylin-aarch64.tar.gz" -C dist_arm PhotoManager
+          du -sh "PhotoManager-${VER}-kylin-aarch64.tar.gz"
 
       - uses: actions/upload-artifact@v4
         with:
