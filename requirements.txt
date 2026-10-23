@@ -1,9 +1,12 @@
 # 照片管理系统 - 依赖清单
 # 平台说明：Windows / Linux(麒麟) 的 pip 依赖完全相同（均有对应预编译轮），
 # 差异在系统级库与构建工具链——详见 docs/DEPENDENCIES.md。
-# Python 版本：Windows 打包 3.12；麒麟兼容包 3.9（bullseye 底座，glibc 2.31）。
+# Python 版本：Windows 打包 3.12；麒麟兼容包 3.11（bullseye 底座，glibc 2.31）。
 # 阶段0：GUI 基础
-PySide6>=6.9.0
+# 0.5.67：PySide6 下限从 6.9.0 放宽到 6.8.0——PySide6 6.9+ 的 aarch64 wheel
+# 要求 glibc>=2.35，麒麟 V10（glibc 2.31）最高只能装 6.8.0.2，CI 冒烟自检
+# 验证 6.8 兼容后放宽；Windows/Linux x64 仍会装到最新版（>=6.8 即可满足）。
+PySide6>=6.8.0
 Pillow>=11.1.0
 piexif>=1.1.3          # 仅 tools/ 测试数据工具需要（主程序不使用）
 # 0.5.58：clip 编码/向量运算直接使用 numpy（此前靠 onnxruntime/opencv 传递带入，
