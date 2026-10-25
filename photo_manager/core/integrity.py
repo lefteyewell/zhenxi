@@ -35,6 +35,8 @@ from __future__ import annotations
 
 import os
 
+from photo_manager.core.paths import resolve_data_path
+
 # 五类问题的稳定顺序（UI 展示与 repair 均按此）
 KINDS = ("missing", "changed", "thumbMissing", "error", "decodeError")
 
@@ -68,19 +70,28 @@ def _exists(path) -> bool:
         return False
 
 
-def check_integrity(db, progress_cb=None) -> dict:
+def check_integrity(db, progress_cb=None, folder: str = "") -> dict:
     """遍历库中全部照片，比对磁盘状态，返回报告。
 
     纯读操作，不写库、不碰原图。
+    0.5.67：folder 非空时只检查该文件夹（含子文件夹）——范围选择。
 
     :return: {"total": int, "ok": int,
               "counts": {kind: n, ...},
-              "ids": {kind: [id, ...], ...}}
+              "ids": {kind: [id, ...], ...},
+              "scope": 实际检查范围描述}
     """
     conn = db.conn
+    folder = (folder or "").strip().replace("\\", "/")
+    where = ""
+    params: list = []
+    if folder:
+        where = (" WHERE folder_path = ? OR folder_path LIKE ? ESCAPE '\\'")
+        params = [folder, folder + "/%"]
     rows = conn.execute(
         "SELECT id, file_path, file_size, file_mtime, thumbnail_path, status,"
-        " decode_error FROM photos"
+        " decode_error FROM photos" + where,
+        params,
     ).fetchall()
     total = len(rows)
 
@@ -111,7 +122,11 @@ def check_integrity(db, progress_cb=None) -> dict:
             continue
 
         # 2) 缩略图丢失（原图在，但缩略图没了）
-        if not _exists(thumb):
+        # 0.5.67：缩略图存的是相对数据目录的路径（0.5.51 起），必须按 db.path
+        # 解析后再判断——直接 os.path.exists 会相对进程 CWD，打包版从任意
+        # 位置启动时全部误报"缩略图丢失"（用户实测）。
+        thumb_abs = str(resolve_data_path(db.path, thumb)) if thumb else ""
+        if not _exists(thumb_abs):
             ids["thumbMissing"].append(pid)
             problem = True
 
@@ -136,11 +151,14 @@ def check_integrity(db, progress_cb=None) -> dict:
         "ok": ok,
         "counts": {k: len(ids[k]) for k in KINDS},
         "ids": ids,
+        "scope": folder or "全部照片",
     }
 
 
-def deep_decode_check(conn, progress_cb=None) -> dict:
+def deep_decode_check(conn, progress_cb=None, folder: str = "") -> dict:
     """深度解码检查（0.5.64）：对非常规格式逐张试解码，发现损坏文件。
+
+    0.5.67：folder 非空时只检查该文件夹（含子文件夹）——范围选择。
 
     背景：部分损坏的文件（文件头+内嵌预览完好、全图数据截断/损坏）在
     导入时无法廉价发现——缩略图走内嵌图必成功、元数据正常。只有全图
@@ -162,9 +180,16 @@ def deep_decode_check(conn, progress_cb=None) -> dict:
     from photo_manager.core.extractor import QT_NATIVE_EXTS, _RAW_EXTS
 
     t0 = _time.perf_counter()
+    folder = (folder or "").strip().replace("\\", "/")
+    where = ""
+    params: list = []
+    if folder:
+        where = " AND (folder_path = ? OR folder_path LIKE ? ESCAPE '\\')"
+        params = [folder, folder + "/%"]
     rows = conn.execute(
         "SELECT id, file_path, ext FROM photos"
-        " WHERE status != 'missing' AND decode_error = 0"
+        " WHERE status != 'missing' AND decode_error = 0" + where,
+        params,
     ).fetchall()
 
     damaged: list[int] = []

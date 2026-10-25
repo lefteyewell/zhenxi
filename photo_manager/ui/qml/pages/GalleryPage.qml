@@ -12,6 +12,41 @@ Item {
     objectName: "galleryPage"
 
     property string pageTitle: I18n.tr("全部照片")
+    /* 0.6.6：标题语种跟随——pageTitle 此前在加载函数里一次性赋值（绑定
+       断裂），切语言后不重译（用户反馈"偶尔未跟随切换"）。改为记录
+       种类+参数，语言切换时 _applyTitle() 重算。 */
+    property string _titleKind: "all"
+    property string _titleArg: ""
+    function _setTitle(kind, arg) {
+        _titleKind = kind
+        _titleArg = arg || ""
+        _applyTitle()
+    }
+    function _applyTitle() {
+        var k = _titleKind, a = _titleArg
+        if (k === "all") pageTitle = I18n.tr("全部照片")
+        else if (k === "event") pageTitle = I18n.tr("事件照片")
+        else if (k === "folder") pageTitle = I18n.tr("文件夹：") + a
+        else if (k === "person") pageTitle = I18n.tr("人物")
+        else if (k === "place") pageTitle = I18n.tr("地点：") + a
+        else if (k === "device") pageTitle = I18n.tr("设备：") + a
+        else if (k === "tag") pageTitle = I18n.tr("标签：") + a
+        else if (k === "search") pageTitle = I18n.tr("搜索：") + a
+        else if (k === "taken") pageTitle = I18n.tr("拍摄：") + a
+        else if (k === "rating") pageTitle = (parseFloat(a) > 0)
+            ? (I18n.tr("评级 ≥ ") + a + " ★") : I18n.tr("已评级")
+        else if (k === "flag") pageTitle = a === "pick" ? I18n.tr("精选照片")
+            : a === "reject" ? I18n.tr("排除照片") : I18n.tr("未标记")
+        else if (k === "stack") pageTitle = I18n.tr("堆叠照片")
+        else if (k === "album") pageTitle = I18n.tr("相册：") + a
+        else if (k === "similar") pageTitle = I18n.tr("相似照片")
+        else if (k === "facesearch") pageTitle = I18n.tr("人脸搜索结果")
+        else pageTitle = I18n.tr("全部照片")
+    }
+    Connections {
+        target: I18n
+        function onLangChanged() { root._applyTitle() }
+    }
     property int currentEventId: -1
     property var selectedIds: []
     property int totalCount: 0
@@ -25,10 +60,12 @@ Item {
     signal batchMoveOutRequested()
     signal batchCopyRequested(string paths)
     signal moveOutOfPersonRequested()
+    signal personFacesRequested(int personId)
     signal backRequested()
 
     property string _mode: "all"
     property int _loaded: 0
+    property var _seenIds: ({})   /* 0.5.67 已加载照片 id 去重表（防分页重叠重复显示） */
     /* 0.5.64 分段重构：分组模式的分组存储。
        _groupStore: [{dir, model(ListModel)}]，dir 唯一、按文件夹序追加；
        groupSectionsModel: 外层分段 ListView 的模型（dir/name 两列）。
@@ -135,7 +172,10 @@ Item {
     }
 
     function _finishRubberGroup() {
-        var vp = root._viewport
+        /* 0.5.67：改用 _viewportItem()——此前用 root._viewport 属性，
+           该属性声明后从未赋值（恒 null），导致分组模式圈选只画框、
+           不选中（早期 return），用户实测复现。 */
+        var vp = root._viewportItem()
         if (!vp) return
         var x1 = Math.min(_rubberStart.x, _rubberCur.x)
         var x2 = Math.max(_rubberStart.x, _rubberCur.x)
@@ -166,6 +206,7 @@ Item {
     function _reset() {
         gridModel.clear()
         gridIds = []
+        _seenIds = ({})
         _loaded = 0
         _busy = false
         _anchorIndex = -1
@@ -180,6 +221,11 @@ Item {
 
     function _append(arr) {
         for (var i = 0; i < arr.length; ++i) {
+            /* 0.5.67：按 id 去重——后端分页若因排序并列/语义回退出现重叠页，
+               不再重复显示同一张缩略图（_seenIds 对象查找 O(1)）。 */
+            if (_seenIds[arr[i].id])
+                continue
+            _seenIds[arr[i].id] = true
             /* 后端 _pack 不返回 selected 字段，若不初始化，delegate 里的
                model.selected 会是 undefined（选中态绑定不可靠）。 */
             arr[i].selected = false
@@ -262,7 +308,7 @@ Item {
     }
 
     function loadAll() {
-        pageTitle = I18n.tr("全部照片")
+        root._setTitle("all", "")
         currentEventId = -1
         totalCount = LibraryBridge.totalPhotos()
         _mode = "all"
@@ -298,7 +344,7 @@ Item {
     }
 
     function loadEvent(eventId) {
-        pageTitle = I18n.tr("事件照片")
+        root._setTitle("event", "")
         currentEventId = eventId
         _mode = "event"
         backTarget = 1
@@ -307,7 +353,7 @@ Item {
     }
 
     function loadFolder(folder) {
-        pageTitle = I18n.tr("文件夹：") + folder
+        root._setTitle("folder", folder)
         _mode = "folder"
         _filterValue = folder
         currentEventId = -1
@@ -318,7 +364,7 @@ Item {
     }
 
     function loadDir(dir) {
-        pageTitle = I18n.tr("文件夹：") + dir
+        root._setTitle("folder", dir)
         _mode = "dir"
         _filterValue = dir
         currentEventId = -1
@@ -329,7 +375,7 @@ Item {
     }
 
     function loadPerson(personId) {
-        pageTitle = I18n.tr("人物")
+        root._setTitle("person", "")
         _mode = "person"
         _filterValue = personId
         currentEventId = -1
@@ -340,7 +386,7 @@ Item {
     }
 
     function loadLocation(lat, lon) {
-        pageTitle = I18n.tr("地点：") + lat.toFixed(2) + ", " + lon.toFixed(2)
+        root._setTitle("place", lat.toFixed(2) + ", " + lon.toFixed(2))
         _mode = "location"
         _filterLat = lat
         _filterLon = lon
@@ -352,7 +398,7 @@ Item {
     }
 
     function loadDevice(model) {
-        pageTitle = I18n.tr("设备：") + model
+        root._setTitle("device", model)
         _mode = "device"
         _filterValue = model
         currentEventId = -1
@@ -363,7 +409,7 @@ Item {
     }
 
     function loadTag(tag) {
-        pageTitle = I18n.tr("标签：") + tag
+        root._setTitle("tag", tag)
         _mode = "tag"
         _filterValue = tag
         currentEventId = -1
@@ -374,16 +420,17 @@ Item {
     }
 
     function search(q) {
-        pageTitle = I18n.tr("搜索：") + q
+        root._setTitle("search", q)
         currentEventId = -1
         _mode = "search"
+        totalCount = 0   /* 搜索结果总数未知：0 可避免 atYEnd 用旧 totalCount 反复拉取 */
         backTarget = 0
         _reset()
         _fetchMore()
     }
 
     function loadDateMonth(ym) {
-        pageTitle = I18n.tr("拍摄：") + ym
+        root._setTitle("taken", ym)
         _mode = "month"
         _filterValue = ym
         currentEventId = -1
@@ -394,7 +441,7 @@ Item {
     }
 
     function loadDateDay(day) {
-        pageTitle = I18n.tr("拍摄：") + day
+        root._setTitle("taken", day)
         _mode = "day"
         _filterValue = day
         currentEventId = -1
@@ -406,7 +453,7 @@ Item {
 
     /* 快速筛选：按评级/旗标 */
     function loadRated(min) {
-        pageTitle = min > 0 ? (I18n.tr("评级 ≥ ") + min + " ★") : I18n.tr("已评级")
+        root._setTitle("rating", String(min))
         _mode = "rated"
         _filterValue = min
         currentEventId = -1
@@ -417,7 +464,7 @@ Item {
     }
 
     function loadFlag(f) {
-        pageTitle = f === "pick" ? I18n.tr("精选照片") : f === "reject" ? I18n.tr("排除照片") : I18n.tr("未标记")
+        root._setTitle("flag", f)
         _mode = "flag"
         _filterValue = f
         currentEventId = -1
@@ -428,7 +475,7 @@ Item {
     }
 
     function loadStacks() {
-        pageTitle = I18n.tr("堆叠照片")
+        root._setTitle("stack", "")
         _mode = "stacks"
         currentEventId = -1
         totalCount = LibraryBridge.stackCount()
@@ -439,7 +486,7 @@ Item {
     }
 
     function loadAlbum(albumId, albumName) {
-        pageTitle = I18n.tr("相册：") + albumName
+        root._setTitle("album", albumName)
         _mode = "album"
         _filterValue = albumId
         currentEventId = -1
@@ -451,7 +498,7 @@ Item {
     }
 
     function loadSimilar() {
-        pageTitle = I18n.tr("相似照片")
+        root._setTitle("similar", "")
         _mode = "similar"
         currentEventId = -1
         totalCount = LibraryBridge.similarCount()
@@ -463,7 +510,7 @@ Item {
 
     /* 0.5.37：上传人脸搜图结果（相似度降序，附 score） */
     function loadFaceSearch() {
-        pageTitle = I18n.tr("人脸搜索结果")
+        root._setTitle("facesearch", "")
         _mode = "facesearch"
         currentEventId = -1
         totalCount = LibraryBridge.faceSearchCount()
@@ -1043,6 +1090,9 @@ Item {
                 MouseArea {
                     anchors.fill: parent
                     acceptedButtons: Qt.LeftButton | Qt.RightButton
+                    /* 0.5.67：圈选拖动激活期间阻止 Flickable 抢占鼠标
+                       （否则拖出格子范围后被视图滚动接管，圈选失效） */
+                    preventStealing: root._rubberActive
                     /* 0.5.63：组头/占位行禁用本 MouseArea——点击穿透到
                        组头条的全宽 MouseArea（整行可点折叠/展开），
                        不再被占位格吞掉（此前只有第一格可点） */
@@ -1113,9 +1163,12 @@ Item {
                             /* 通知大图查看器：当前可见照片序列 + 点击位置 */
                             var vc = root.viewerContextForId(model.id)
                             root.photoContextRequested(vc[0], vc[1])
-                        } else {
-                            root.photoClicked(-1)
                         }
+                        /* 0.6.3：再次点击已选照片=取消选择，但信息栏不再清空——
+                           此前发 photoClicked(-1) 把面板整个重置（currentId=-1），
+                           评级/标签/场景等按钮随之全部失效（用户反馈"信息栏
+                           按钮都失效、场景不显示"）。保留最后浏览的照片详情，
+                           显式点空白处才会清空。 */
                     }
                     onDoubleClicked: (mouse) => {
                         if (mouse.button === Qt.LeftButton
@@ -1165,6 +1218,16 @@ Item {
                 font.family: Theme.fontFamily
                 font.pixelSize: 12
                 color: Theme.textDim
+            }
+            /* 0.5.67：人物页专属——批量分拆人脸（归为新人物/并入其他人物） */
+            PMButton {
+                objectName: "personFacesManageBtn"
+                text: I18n.tr("管理头像")
+                height: 30
+                anchors.verticalCenter: parent.verticalCenter
+                visible: root._mode === "person"
+                tooltip: I18n.tr("列出该人物的全部头像，勾选后可拆分到新人物或其他人物")
+                onClicked: root.personFacesRequested(root._filterValue)
             }
             Item { Layout.fillWidth: true; width: 10 }
             Text {
@@ -1284,8 +1347,8 @@ Item {
             }
         }
 
-        /* 批量操作条：有选择时显示。0.5.36 改 Flow 自适应换行，
-           窗口缩小时按钮折到下一行而不是被截断 */
+        /* 批量操作条：0.5.67 改为固定显示（用户反馈：不选择也应可见）。
+           0.5.36 改 Flow 自适应换行，窗口缩小时按钮折到下一行而不是被截断 */
         Rectangle {
             objectName: "batchBar"
             Layout.fillWidth: true
@@ -1293,9 +1356,8 @@ Item {
             Layout.leftMargin: Theme.spacingMedium
             Layout.rightMargin: Theme.spacingMedium
             Layout.bottomMargin: Theme.spacingSmall
-            visible: root.selectedIds.length > 0
             radius: Theme.radiusMedium
-            color: Theme.primary
+            color: root.selectedIds.length > 0 ? Theme.primary : Theme.surfaceAlt
             opacity: 0.95
 
             Flow {
@@ -1305,7 +1367,9 @@ Item {
                 spacing: Theme.spacingSmall
 
                 Text {
-                    text: I18n.tr("已选 ") + root.selectedIds.length + I18n.tr(" 张")
+                    text: root.selectedIds.length > 0
+                          ? I18n.tr("已选 ") + root.selectedIds.length + I18n.tr(" 张")
+                          : I18n.tr("未选择照片")
                     height: 30
                     verticalAlignment: Text.AlignVCenter
                     rightPadding: 4
@@ -1400,6 +1464,27 @@ Item {
                 clip: true
                 cacheBuffer: 2000
                 focus: true
+                /* 0.5.67：禁用拖动平移（用户要求：空白拖动留给圈选，滚轮/滚动条滚动）。
+                   interactive:false 后滚轮不再由 Flickable 内建处理，显式加 WheelHandler。 */
+                interactive: false
+
+                WheelHandler {
+                    acceptedModifiers: Qt.NoModifier
+                    onWheel: (ev) => {
+                        var step = ev.angleDelta.y / 120 * root.cellSize * 2
+                        gridView.contentY = Math.max(
+                            -gridView.topMargin,
+                            Math.min(gridView.contentHeight - gridView.height + gridView.bottomMargin,
+                                     gridView.contentY - step))
+                        ev.accepted = true
+                    }
+                }
+
+                /* interactive:false 后程序化滚动不触发 movementEnded，改在 contentY 变化时补加载 */
+                onContentYChanged: {
+                    if (contentY + height > contentHeight - root.cellSize * 3)
+                        root._fetchMore()
+                }
                 /* 0.5.57：资源管理器风格分组——组头横跨整行（GridView section）。
                    折叠组用I18n.tr("哨兵行")占位（该组唯一行，delegate 渲染为透明），
                    其 section 头显示折叠态；展开组直接由成员行产生 section 头。 */
@@ -1410,9 +1495,59 @@ Item {
                         root._fetchMore()
                 }
 
+                /* 0.5.67：空白处起圈选——此前只能从格子上起拖（缩略图间隙/
+                   空白区域按下拖动无反应，用户反馈）。preventStealing 让
+                   圈选拖动不被 Flickable 抢走变成滚动；滚轮/滚动条不受影响。
+                   z: -1 压到 delegate 层之下——否则会盖住格子吞掉单击
+                   （0.5.67 第二次真机反馈的回归）；空白单击 = 取消选择。 */
+                MouseArea {
+                    anchors.fill: parent
+                    z: -1
+                    preventStealing: true
+                    acceptedButtons: Qt.LeftButton
+                    onPressed: (mouse) => {
+                        root._pressPos = mapToItem(root._viewportItem(), mouse.x, mouse.y)
+                        root._cellLeftPressed = true
+                        root._suppressClick = false
+                        root._rubberBaseSel = root.selectedIds.slice()
+                    }
+                    onPositionChanged: (mouse) => {
+                        if (!root._cellLeftPressed || !(mouse.buttons & Qt.LeftButton))
+                            return
+                        var p = mapToItem(root._viewportItem(), mouse.x, mouse.y)
+                        var dx = p.x - root._pressPos.x, dy = p.y - root._pressPos.y
+                        if (!root._rubberActive && dx * dx + dy * dy > 64) {
+                            root._rubberActive = true
+                            root._rubberMode = (mouse.modifiers & (Qt.ControlModifier | Qt.ShiftModifier))
+                                               ? "add" : "replace"
+                            root._rubberStart = root._pressPos
+                        }
+                        if (root._rubberActive)
+                            root._rubberCur = p
+                    }
+                    onReleased: (mouse) => {
+                        if (root._rubberActive) {
+                            root._finishRubber()
+                            root._rubberActive = false
+                            root._cellLeftPressed = false
+                            mouse.accepted = true
+                        }
+                    }
+                    onClicked: (mouse) => {
+                        /* 空白处单击（未拖出圈选）= 取消全部选择 */
+                        if (root._suppressClick) {
+                            root._suppressClick = false
+                            return
+                        }
+                        root._clearAllSelections()
+                        root.selectedIds = []
+                        root.photoClicked(-1)
+                    }
+                }
+
                 ScrollBar.vertical: PMScrollBar {
                     objectName: "galleryScroll"
-                    policy: ScrollBar.AsNeeded
+                    policy: ScrollBar.AlwaysOn
                     visible: gridView.contentHeight > gridView.height
                 }
 
@@ -1464,10 +1599,75 @@ Item {
                     cacheBuffer: 2000
                     model: groupSectionsModel
                     spacing: 10
+                    /* 0.5.67：禁用拖动平移（同平铺模式） */
+                    interactive: false
+
+                    WheelHandler {
+                        acceptedModifiers: Qt.NoModifier
+                        onWheel: (ev) => {
+                            var step = ev.angleDelta.y / 120 * root.cellSize * 2
+                            groupList.contentY = Math.max(
+                                -groupList.topMargin,
+                                Math.min(groupList.contentHeight - groupList.height + groupList.bottomMargin,
+                                         groupList.contentY - step))
+                            ev.accepted = true
+                        }
+                    }
+
+                    onContentYChanged: {
+                        if (contentY + height > contentHeight - root.cellSize * 3)
+                            root._fetchMore()
+                    }
 
                     onMovementEnded: {
                         if (contentY + height > contentHeight - root.cellSize * 3)
                             root._fetchMore()
+                    }
+
+                    /* 0.5.67：空白处起圈选（与平铺模式一致）；z:-1 压到 delegate 之下，
+                       空白单击 = 取消选择 */
+                    MouseArea {
+                        anchors.fill: parent
+                        z: -1
+                        preventStealing: true
+                        acceptedButtons: Qt.LeftButton
+                        onPressed: (mouse) => {
+                            root._pressPos = mapToItem(root._viewportItem(), mouse.x, mouse.y)
+                            root._cellLeftPressed = true
+                            root._suppressClick = false
+                            root._rubberBaseSel = root.selectedIds.slice()
+                        }
+                        onPositionChanged: (mouse) => {
+                            if (!root._cellLeftPressed || !(mouse.buttons & Qt.LeftButton))
+                                return
+                            var p = mapToItem(root._viewportItem(), mouse.x, mouse.y)
+                            var dx = p.x - root._pressPos.x, dy = p.y - root._pressPos.y
+                            if (!root._rubberActive && dx * dx + dy * dy > 64) {
+                                root._rubberActive = true
+                                root._rubberMode = (mouse.modifiers & (Qt.ControlModifier | Qt.ShiftModifier))
+                                                   ? "add" : "replace"
+                                root._rubberStart = root._pressPos
+                            }
+                            if (root._rubberActive)
+                                root._rubberCur = p
+                        }
+                        onReleased: (mouse) => {
+                            if (root._rubberActive) {
+                                root._finishRubber()
+                                root._rubberActive = false
+                                root._cellLeftPressed = false
+                                mouse.accepted = true
+                            }
+                        }
+                        onClicked: (mouse) => {
+                            if (root._suppressClick) {
+                                root._suppressClick = false
+                                return
+                            }
+                            root._clearAllSelections()
+                            root.selectedIds = []
+                            root.photoClicked(-1)
+                        }
                     }
                     onAtYEndChanged: {
                         if (atYEnd && root._loaded < root.totalCount)
@@ -1476,7 +1676,7 @@ Item {
 
                     ScrollBar.vertical: PMScrollBar {
                         objectName: "galleryGroupScroll"
-                        policy: ScrollBar.AsNeeded
+                        policy: ScrollBar.AlwaysOn
                         visible: groupList.contentHeight > groupList.height
                     }
 
@@ -1679,7 +1879,7 @@ Item {
                     cellWidth: 150
                     cellHeight: 150
                     clip: true
-                    ScrollBar.vertical: PMScrollBar { policy: ScrollBar.AsNeeded }
+                    ScrollBar.vertical: PMScrollBar { policy: ScrollBar.AlwaysOn }
                     delegate: Item {
                         width: 150
                         height: 150

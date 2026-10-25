@@ -30,10 +30,13 @@ Popup {
 
     modal: true
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+    parent: Overlay.overlay
     x: Math.round((parent.width - width) / 2)
     y: Math.round((parent.height - height) / 2)
     width: 520
-    height: 560
+    /* 0.5.67：高度自适应屏幕并加大——此前固定 560 而字段区不可滚动，
+       底部按钮被挤出弹窗（用户反馈）。字段区包进 ScrollView 后不再溢出。 */
+    height: Math.min(640, (parent ? parent.height : 600) - 40)
     padding: Theme.spacingMedium
 
     signal searchRequested(string query)
@@ -95,6 +98,18 @@ Popup {
                 color: Theme.text
             }
         }
+
+        /* 0.5.67：字段区包进 ScrollView——字段行数多于弹窗高度时滚动查看，
+           底部按钮固定在弹窗内不再被挤出 */
+        ScrollView {
+            width: parent.width
+            height: root.height - 132
+            contentWidth: width
+            ScrollBar.vertical: PMScrollBar { policy: ScrollBar.AlwaysOn }
+
+            Column {
+                width: parent.width
+                spacing: Theme.spacingSmall
 
         Text {
             text: I18n.tr("关键词（文件名 / 相机 / OCR 文字）")
@@ -386,6 +401,8 @@ Popup {
                 model: [I18n.tr("全部"), I18n.tr("红"), I18n.tr("黄"), I18n.tr("绿"), I18n.tr("蓝"), I18n.tr("紫"), I18n.tr("无色标")]
             }
         }
+        } /* 0.5.67 收口：字段 Column */
+        } /* 0.5.67 收口：ScrollView */
 
         Row {
             width: parent.width

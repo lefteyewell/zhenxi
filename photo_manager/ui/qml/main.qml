@@ -18,6 +18,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Window
 import theme 1.0
 import components 1.0
 import pages 1.0
@@ -26,11 +27,34 @@ import i18n 1.0
 ApplicationWindow {
     id: window
 
+    /* 0.6.2 多语言：可用语言清单（code → 显示名），由 _i18nRefreshLangs()
+       从 LibraryBridge.i18nLanguages() 刷新（内置包 + 数据目录 i18n/ 用户包） */
+    property var _langNames: ({ "zh": "中文" })
+
+    /* 刷新可用语言并登记进 I18n；返回 [{code,name}] */
+    function _i18nRefreshLangs() {
+        var langs = []
+        try { langs = JSON.parse(LibraryBridge.i18nLanguages()) } catch (e) { }
+        var names = { "zh": "中文" }
+        var codes = ["zh"]
+        for (var i = 0; i < langs.length; ++i) {
+            var it = langs[i]
+            if (!it.code || names[it.code]) continue
+            names[it.code] = it.name || it.code
+            codes.push(it.code)
+        }
+        _langNames = names
+        I18n.availableLanguages = codes
+        return langs
+    }
+
     width: 1440
     height: 900
     minimumWidth: 1100
     minimumHeight: 700
     visible: true
+    /* 0.5.67：启动窗口最大化在文件末尾既有的 Component.onCompleted 内处理
+       （ApplicationWindow 只能有一个 onCompleted，重复声明会整页加载失败） */
     title: I18n.tr("真昔 · 照片管理系统")
 
     /* 主题与控制器联动 */
@@ -69,6 +93,10 @@ ApplicationWindow {
             MenuItem {
                 objectName: "btnScan"
                 text: I18n.tr("添加照片文件夹…")
+                hoverEnabled: true
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: I18n.tr("把一个文件夹（含子文件夹）里的照片与视频导入库")
                 onTriggered: {
                     statusText.text = I18n.tr("正在打开文件夹选择…")
                     scanPicker.openDialog()
@@ -77,44 +105,76 @@ ApplicationWindow {
             MenuItem {
                 objectName: "btnPaths"
                 text: I18n.tr("管理路径…")
+                hoverEnabled: true
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: I18n.tr("查看、增加或移除库的扫描根目录")
                 onTriggered: pathsDialog.open()
             }
             MenuSeparator {}
             MenuItem {
                 objectName: "btnExport"
                 text: I18n.tr("导出所选…")
+                hoverEnabled: true
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: I18n.tr("把选中的照片/视频导出为指定格式与分辨率")
                 onTriggered: exportDialog.open()
             }
             MenuItem {
                 objectName: "btnMoveOut"
                 text: I18n.tr("移出管理…")
+                hoverEnabled: true
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: I18n.tr("记录从库中移出的照片（移出记录，不删除原文件）")
                 onTriggered: moveOutPicker.openDialog()
             }
             MenuSeparator {}
             MenuItem {
                 objectName: "btnExportCsv"
                 text: I18n.tr("导出元数据 CSV…")
+                hoverEnabled: true
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: I18n.tr("把库内照片清单（含标签/评分等）导出为 CSV 表格")
                 onTriggered: csvPicker.openDialog()
             }
             MenuItem {
                 objectName: "btnSyncOut"
                 text: I18n.tr("导出元数据到 XMP…")
+                hoverEnabled: true
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: I18n.tr("把标签、评级等元数据写入照片的 XMP 边车文件（不改原图像素）")
                 onTriggered: syncOutPicker.openDialog()
             }
             MenuItem {
                 objectName: "btnSyncIn"
                 text: I18n.tr("导入元数据…")
+                hoverEnabled: true
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: I18n.tr("从 XMP 边车文件把标签、评级等元数据读回库")
                 onTriggered: syncInPicker.openDialog()
             }
             MenuSeparator {}
             MenuItem {
                 objectName: "btnSettings"
                 text: I18n.tr("设置…")
+                hoverEnabled: true
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: I18n.tr("打开设置（主题、智能分析、启动行为等）")
                 onTriggered: settingsDialog.openSettings()
             }
             MenuSeparator {}
             MenuItem {
                 text: I18n.tr("退出")
+                hoverEnabled: true
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: I18n.tr("彻底退出程序（后台任务完成后再退出更安全）")
                 onTriggered: window.close()
             }
         }
@@ -129,11 +189,19 @@ ApplicationWindow {
             MenuItem {
                 objectName: "btnAdvancedSearch"
                 text: I18n.tr("高级搜索…")
+                hoverEnabled: true
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: I18n.tr("按关键词、日期、相机、人物、评分等多条件组合搜索")
                 onTriggered: advancedSearch.open()
             }
             MenuSeparator {}
             MenuItem {
                 text: I18n.tr("今天拍摄的照片")
+                hoverEnabled: true
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: I18n.tr("筛出今天拍摄的照片")
                 onTriggered: {
                     var d = new Date()
                     var y = d.getFullYear()
@@ -144,10 +212,18 @@ ApplicationWindow {
             }
             MenuItem {
                 text: I18n.tr("X 年前的今天")
+                hoverEnabled: true
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: I18n.tr("回看往年同一天拍摄的照片（年份可选）")
                 onTriggered: { navState.current = 15; mainContent.showOnThisDay() }
             }
             MenuItem {
                 text: I18n.tr("本周拍摄的照片")
+                hoverEnabled: true
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: I18n.tr("筛出本周（周一起）拍摄的照片")
                 onTriggered: {
                     var now = new Date()
                     var start = new Date(now)
@@ -160,28 +236,52 @@ ApplicationWindow {
             }
             MenuItem {
                 text: I18n.tr("带文字的照片（OCR）")
+                hoverEnabled: true
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: I18n.tr("离线 OCR 已识别出文字的照片")
                 onTriggered: mainContent.loadSearch("text:")
             }
             MenuItem {
                 text: I18n.tr("带人脸的照片")
+                hoverEnabled: true
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: I18n.tr("检出过人脸的照片")
                 onTriggered: mainContent.loadSearch("faces:1")
             }
             MenuItem {
                 objectName: "btnFaceSearchUpload"
                 text: I18n.tr("上传人脸搜图…")
+                hoverEnabled: true
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: I18n.tr("用一张人脸照片在库内找相似人物")
                 onTriggered: faceSearchPicker.openDialog()
             }
             MenuSeparator {}
             MenuItem {
                 text: I18n.tr("精选照片")
+                hoverEnabled: true
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: I18n.tr("按图像质量评分挑出的高质量照片")
                 onTriggered: { navState.current = 0; gallery.loadFlag("pick") }
             }
             MenuItem {
                 text: I18n.tr("已评级（≥1★）")
+                hoverEnabled: true
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: I18n.tr("你给过 1 星及以上评级的照片")
                 onTriggered: { navState.current = 0; gallery.loadRated(1) }
             }
             MenuItem {
                 text: I18n.tr("高评分（≥4★）")
+                hoverEnabled: true
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: I18n.tr("4 星及以上的高分照片")
                 onTriggered: { navState.current = 0; gallery.loadRated(4) }
             }
         }
@@ -196,21 +296,37 @@ ApplicationWindow {
             MenuItem {
                 objectName: "btnThumbSmall"
                 text: I18n.tr("缩略图 · 小")
+                hoverEnabled: true
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: I18n.tr("每格更小，一屏显示更多")
                 onTriggered: if (ThemeController) ThemeController.thumbSize = 110
             }
             MenuItem {
                 objectName: "btnThumbMedium"
                 text: I18n.tr("缩略图 · 中")
+                hoverEnabled: true
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: I18n.tr("默认缩略图大小")
                 onTriggered: if (ThemeController) ThemeController.thumbSize = 160
             }
             MenuItem {
                 objectName: "btnThumbLarge"
                 text: I18n.tr("缩略图 · 大")
+                hoverEnabled: true
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: I18n.tr("更大缩略图，看得更清楚")
                 onTriggered: if (ThemeController) ThemeController.thumbSize = 220
             }
             MenuItem {
                 objectName: "btnThumbXL"
                 text: I18n.tr("缩略图 · 超大")
+                hoverEnabled: true
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: I18n.tr("最大缩略图，适合逐张浏览")
                 onTriggered: if (ThemeController) ThemeController.thumbSize = 300
             }
         }
@@ -279,6 +395,10 @@ ApplicationWindow {
             MenuItem {
                 objectName: "schedEngineInternal"
                 text: I18n.tr("程序内计时（需程序在跑）")
+                hoverEnabled: true
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: I18n.tr("由真昔自己计时触发；程序退出时定时任务暂停")
                 checkable: true
                 checked: scheduleMenu.engineInternal
                 onTriggered: statusText.text = LibraryBridge.setScheduleEngine("internal")
@@ -286,6 +406,10 @@ ApplicationWindow {
             MenuItem {
                 objectName: "schedEngineOs"
                 text: I18n.tr("系统任务计划（关机不错过）")
+                hoverEnabled: true
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: I18n.tr("交给操作系统计划任务触发，关机错过的时间点开机后补执行")
                 checkable: true
                 checked: !scheduleMenu.engineInternal
                 onTriggered: statusText.text = LibraryBridge.setScheduleEngine("os")
@@ -294,6 +418,10 @@ ApplicationWindow {
             MenuItem {
                 objectName: "schedModeOff"
                 text: I18n.tr("已关闭")
+                hoverEnabled: true
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: I18n.tr("关闭定时任务")
                 checkable: true
                 checked: scheduleMenu.modeOff
                 onTriggered: { LibraryBridge.setScheduleMode("off"); scheduleMenu.refresh() }
@@ -301,6 +429,10 @@ ApplicationWindow {
             MenuItem {
                 objectName: "schedModeOnce"
                 text: I18n.tr("仅一次…")
+                hoverEnabled: true
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: I18n.tr("设置某个时刻只执行一次")
                 checkable: true
                 checked: scheduleMenu.modeOnce
                 onTriggered: { LibraryBridge.setScheduleMode("once"); scheduleMenu.refresh() }
@@ -308,6 +440,10 @@ ApplicationWindow {
             MenuItem {
                 objectName: "schedModeDaily"
                 text: I18n.tr("每日执行")
+                hoverEnabled: true
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: I18n.tr("每天定点自动执行所选任务")
                 checkable: true
                 checked: scheduleMenu.modeDaily
                 onTriggered: { LibraryBridge.setScheduleMode("daily"); scheduleMenu.refresh() }
@@ -316,12 +452,20 @@ ApplicationWindow {
             MenuItem {
                 objectName: "schedTimeItem"
                 text: I18n.tr("每日执行时间…")
+                hoverEnabled: true
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: I18n.tr("设置每日执行的具体时刻")
                 enabled: scheduleMenu.modeDaily
                 onTriggered: schedTimeDialog.openFor("daily")
             }
             MenuItem {
                 objectName: "schedOnceItem"
                 text: I18n.tr("一次性时间…")
+                hoverEnabled: true
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: I18n.tr("设置一次性任务的具体时刻")
                 enabled: scheduleMenu.modeOnce
                 onTriggered: schedTimeDialog.openFor("once")
             }
@@ -329,6 +473,10 @@ ApplicationWindow {
             MenuItem {
                 objectName: "schedCheckItem"
                 text: I18n.tr("定时执行：检查照片文件夹")
+                hoverEnabled: true
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: I18n.tr("定时自动发现新增/有变更的照片文件并入库")
                 checkable: true
                 checked: scheduleMenu.chkCheck
                 onTriggered: { LibraryBridge.setScheduleCheckEnabled(checked); scheduleMenu.refresh() }
@@ -336,6 +484,10 @@ ApplicationWindow {
             MenuItem {
                 objectName: "schedAnalyzeItem"
                 text: I18n.tr("定时执行：智能分析（事件/重复/人脸/文字）")
+                hoverEnabled: true
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: I18n.tr("定时自动做事件聚类、查重、人脸识别与文字识别")
                 checkable: true
                 checked: scheduleMenu.chkAnalyze
                 onTriggered: { LibraryBridge.setScheduleAnalyzeEnabled(checked); scheduleMenu.refresh() }
@@ -358,12 +510,20 @@ ApplicationWindow {
             MenuItem {
                 objectName: "btnTools"
                 text: I18n.tr("工具中心…")
+                hoverEnabled: true
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: I18n.tr("打开工具中心（查重、人脸聚类、深度解码检查等全部工具）")
                 onTriggered: toolsDialog.open()
             }
             MenuSeparator {}
             MenuItem {
                 objectName: "btnQuickAnalyze"
                 text: I18n.tr("自动分析…")
+                hoverEnabled: true
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: I18n.tr("手动触发一轮事件/重复/人脸/文字的完整分析")
                 onTriggered: {
                     statusText.text = I18n.tr("自动分析已启动（状态栏显示进度）")
                     LibraryBridge.autoAnalyze()
@@ -372,6 +532,10 @@ ApplicationWindow {
             MenuItem {
                 objectName: "btnFaceClean"
                 text: I18n.tr("低质量人脸清理…")
+                hoverEnabled: true
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: I18n.tr("批量隐藏或删除误检、模糊的低质量人脸标注")
                 onTriggered: faceCleanDialog.open()
             }
         }
@@ -386,43 +550,75 @@ ApplicationWindow {
             MenuItem {
                 objectName: "btnBackup"
                 text: I18n.tr("立即备份")
+                hoverEnabled: true
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: I18n.tr("把数据库与配置备份到默认备份目录")
                 onTriggered: statusText.text = I18n.tr("备份中… ") + LibraryBridge.backupNow()
             }
             MenuItem {
                 objectName: "btnBackupTo"
                 text: I18n.tr("备份到…")
+                hoverEnabled: true
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: I18n.tr("把库备份到你指定的位置")
                 onTriggered: backupPicker.openDialog()
             }
             MenuItem {
                 objectName: "btnRestore"
                 text: I18n.tr("从备份恢复…")
+                hoverEnabled: true
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: I18n.tr("用备份文件把库恢复到备份时点")
                 onTriggered: restorePicker.openDialog()
             }
             MenuSeparator {}
             MenuItem {
                 objectName: "btnLockReadOnly"
                 text: I18n.tr("锁定只读…")
+                hoverEnabled: true
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: I18n.tr("临时把库设为只读（防误改，可随时解锁）")
                 onTriggered: readOnlyDialog.open()
             }
             MenuSeparator {}
             MenuItem {
                 objectName: "btnReindex"
                 text: I18n.tr("重建索引")
+                hoverEnabled: true
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: I18n.tr("重建全文检索与缩略图索引（不改动任何照片）")
                 onTriggered: LibraryBridge.reindexCheck()
             }
             MenuItem {
                 objectName: "btnIntegrity"
                 text: I18n.tr("完整性校验")
+                hoverEnabled: true
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: I18n.tr("比对库记录与磁盘文件，发现缺失、被改动、缩略图丢失等")
                 onTriggered: LibraryBridge.integrityCheck()
             }
             MenuItem {
                 objectName: "btnFolderCheck"
                 text: I18n.tr("检查照片文件夹")
+                hoverEnabled: true
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: I18n.tr("扫描已登记的文件夹，发现新增或变更的照片")
                 onTriggered: LibraryBridge.folderCheck(false)
             }
             MenuItem {
                 objectName: "btnDbDetail"
                 text: I18n.tr("详细统计")
+                hoverEnabled: true
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: I18n.tr("查看照片数量、存储占用等详细统计")
                 onTriggered: {
                     var d = LibraryBridge.dbDetail()
                     var s = I18n.tr("照片 ") + d.photos + I18n.tr("（索引 ") + d.indexed + I18n.tr(" · 失败 ")
@@ -436,6 +632,10 @@ ApplicationWindow {
             MenuItem {
                 objectName: "btnInitDatabase"
                 text: I18n.tr("初始化数据库…")
+                hoverEnabled: true
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: I18n.tr("新建一个空库（当前库与照片不受影响）")
                 onTriggered: initDbConfirm.open()
             }
         }
@@ -450,16 +650,28 @@ ApplicationWindow {
             MenuItem {
                 objectName: "btnHelp"
                 text: I18n.tr("使用说明…")
+                hoverEnabled: true
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: I18n.tr("查看完整使用说明")
                 onTriggered: helpDialog.open()
             }
             MenuItem {
                 objectName: "btnFirstRunGuide"
                 text: I18n.tr("首次使用引导…")
+                hoverEnabled: true
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: I18n.tr("重新打开首次使用引导")
                 onTriggered: firstRunDialog.open()
             }
             MenuItem {
                 objectName: "btnAbout"
                 text: I18n.tr("关于…")
+                hoverEnabled: true
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: I18n.tr("版本、许可与开源信息")
                 onTriggered: aboutDialog.open()
             }
         }
@@ -656,7 +868,7 @@ ApplicationWindow {
                             anchors.fill: parent
                             model: []
                             clip: true
-                            ScrollBar.vertical: PMScrollBar { policy: ScrollBar.AsNeeded }
+                            ScrollBar.vertical: PMScrollBar { policy: ScrollBar.AlwaysOn }
                             delegate: ItemDelegate {
                                 width: suggestList.width
                                 height: 28
@@ -685,7 +897,7 @@ ApplicationWindow {
                     model: ThemeController ? ThemeController.schemeNames : []
                     currentIndex: ThemeController ? ThemeController.schemeIndex : 0
                     onActivated: ThemeController.setScheme(currentIndex)
-                    width: 110
+                    width: 96   /* 最长项"影棚深灰"4 字 + 指示箭头可完整显示（用户反馈原 110 太宽） */
                     height: 32
                 }
 
@@ -695,19 +907,58 @@ ApplicationWindow {
                 }
 
                 /* 0.5.66：界面语言切换（多语言架构——语言包为数据文件，
-                   新增语言只需在 i18n/ 放 <code>.json 并登记 availableLanguages） */
-                PMButton {
+                   新增语言只需在 i18n/ 放 <code>.json 并登记 availableLanguages）
+                   0.5.67：显示"中/EN"，当前语言加粗（用户反馈）。
+                   0.6.3 回退：语言菜单方案（Instantiator）在真机上体验不佳
+                   （点击不灵/切换残留英文），按用户要求恢复一键切换按钮。
+                   availableLanguages 仍含用户自装语言（启动时刷新），循环切换可用。 */
+                Button {
+                    id: tbLang
                     objectName: "tbLang"
-                    tooltip: I18n.tr("切换界面语言 / Switch language")
-                    text: I18n.lang === "en" ? "EN" : "中"
-                    width: 48
+                    width: 64
                     height: 32
+                    ToolTip.visible: hovered
+                    ToolTip.delay: 550
+                    ToolTip.text: I18n.tr("切换界面语言 / Switch language")
                     onClicked: {
                         var langs = I18n.availableLanguages
                         var i = langs.indexOf(I18n.lang)
                         var next = langs[(i + 1) % langs.length]
                         I18n.setLang(next, LibraryBridge.i18nCatalog(next))
                         LibraryBridge.setUiLang(next)
+                    }
+                    contentItem: Row {
+                        spacing: 2
+                        anchors.centerIn: parent
+                        Text {
+                            text: "中"
+                            font.family: Theme.fontFamily
+                            font.pixelSize: 13
+                            font.bold: I18n.lang !== "en"
+                            color: I18n.lang !== "en" ? Theme.text : Theme.textDim
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+                        Text {
+                            text: "/"
+                            font.family: Theme.fontFamily
+                            font.pixelSize: 12
+                            color: Theme.textDim
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+                        Text {
+                            text: "EN"
+                            font.family: Theme.fontFamily
+                            font.pixelSize: 13
+                            font.bold: I18n.lang === "en"
+                            color: I18n.lang === "en" ? Theme.text : Theme.textDim
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+                    }
+                    background: Rectangle {
+                        radius: Theme.radiusSmall
+                        color: tbLang.enabled ? (tbLang.hovered ? Theme.hover : Theme.surface) : Theme.surfaceAlt
+                        border.width: 1
+                        border.color: Theme.divider
                     }
                 }
             }
@@ -1014,6 +1265,9 @@ ApplicationWindow {
                     onContextMenuRequested: (gx, gy) => {
                         var pt = window.contentItem.mapFromGlobal(gx, gy)
                         galleryMenu.popup(window.contentItem, pt.x, pt.y)
+                    }
+                    onPersonFacesRequested: (personId) => {
+                        personFacesDialog.openFor(personId)
                     }
                     onBatchTagRequested: {
                         batchTagDialog.label = I18n.tr("为所选 ") + gallery.selectedIds.length + I18n.tr(" 张照片添加标签：")
@@ -1415,6 +1669,19 @@ ApplicationWindow {
                     font.pixelSize: 11
                     color: Theme.primary
                 }
+                /* 0.6.3：状态栏居中提示——后台任务运行期间部分功能受限
+                   （任务互斥会让手动操作被拒，用户不明就里以为功能坏了） */
+                Item { Layout.fillWidth: true }
+                Text {
+                    id: busyHint
+                    objectName: "busyHint"
+                    visible: false
+                    text: I18n.tr("有后台任务运行期间，部分功能可能受限")
+                    font.family: Theme.fontFamily
+                    font.pixelSize: 11
+                    font.italic: true
+                    color: Theme.primary
+                }
                 Item { Layout.fillWidth: true }
                 Text {
                     text: I18n.tr("缩略图")
@@ -1440,6 +1707,15 @@ ApplicationWindow {
                     font.family: Theme.fontFamily
                     font.pixelSize: 11
                     color: Theme.textDim
+
+                    /* 0.5.67：点状态栏任务文字/进度条重新打开进度弹窗
+                       （此前"隐藏"后无入口可再调出，用户反馈） */
+                    MouseArea {
+                        anchors.fill: parent
+                        visible: taskBar.visible
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: analysisProgress.reopen()
+                    }
                 }
                 ProgressBar {
                     id: taskBar
@@ -1448,6 +1724,12 @@ ApplicationWindow {
                     from: 0
                     to: 100
                     value: 0
+
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: analysisProgress.reopen()
+                    }
                 }
             }
         }
@@ -1477,6 +1759,10 @@ ApplicationWindow {
         }
         function onToast(text, kind) {
             toastLayer.show(text, kind)
+        }
+        /* 0.6.3：后台任务忙/闲切换状态栏居中提示（busyChanged 在任务起止时发射） */
+        function onBusyChanged() {
+            busyHint.visible = LibraryBridge.busyCount() > 0
         }
         function onTaskProgress(done, total, labelText) {
             taskBar.visible = total > 0
@@ -1552,6 +1838,7 @@ ApplicationWindow {
     /* 库完整性校验报告（校验完成后由 LibraryBridge.integrityFinished 拉起） */
     IntegrityDialog {
         id: integrityDialog
+        onCheckRequested: (folder) => LibraryBridge.integrityCheck(folder)
         onRepairRequested: (kind) => {
             var n = LibraryBridge.integrityRepair(kind)
             if (n > 0) {
@@ -1922,6 +2209,12 @@ ApplicationWindow {
     /* 0.5.37：低质量人脸清理（隐藏/删除人脸标签，照片不动） */
     FaceCleanDialog {
         id: faceCleanDialog
+        onMessageRequested: (msg, kind) => toastLayer.show(msg, kind)
+    }
+
+    /* 0.5.67：人物头像批量管理（分拆误并的聚类：归为新人物/并入其他人物） */
+    PersonFacesDialog {
+        id: personFacesDialog
         onMessageRequested: (msg, kind) => toastLayer.show(msg, kind)
     }
 
@@ -2529,12 +2822,23 @@ ApplicationWindow {
         onActivated: popupGate.closeAll()
     }
 
+    /* 0.6.2/0.6.3：语言选择菜单（语言按钮弹出；列出全部内置/用户语言包）。
+       用 Instantiator + ListModel 声明式构建——Menu 的 clear()/takeItem()
+       等从 JS 调用受限（clear 非 Q_INVOKABLE、takeItem 参数桥接报错），
+       ListModel.clear()/append() 是项目里久经考验的安全路径。 */
     Component.onCompleted: {
             // 0.5.66：界面语言初始化（单例不碰 LibraryBridge，由本文件传入）
+            // 0.6.2：先刷新语言清单（含用户包），否则已保存的自装语言会被拒
+            window._i18nRefreshLangs()
             var _savedLang = LibraryBridge.uiLang()
             I18n.initFromSettings(_savedLang,
                          LibraryBridge.i18nCatalog(_savedLang))
         mainContent.showAll()
+        /* 0.5.67：启动窗口最大化（设置 → 启动与常驻，默认开）。
+           Qt.callLater 延迟到绑定求值/窗口显示流程之后，直接置可能被
+           visible 绑定覆盖而不生效（用户实测）。 */
+        if (LibraryBridge.startupMaximizedEnabled())
+            Qt.callLater(function () { window.visibility = Window.Maximized })
     }
 
     onClosing: (close) => {

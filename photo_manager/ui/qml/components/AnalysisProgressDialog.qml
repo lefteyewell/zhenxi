@@ -106,7 +106,7 @@ Popup {
             PMButton {
                 text: I18n.tr("隐藏")
                 objectName: "btnHideProgress"
-                tooltip: I18n.tr("隐藏弹窗（任务继续在后台运行，不会中断；状态栏仍显示进度）")
+                tooltip: I18n.tr("隐藏弹窗（任务继续在后台运行；点状态栏的进度条可重新打开）")
                 onClicked: {
                     root.suppressPop = true
                     root.close()
@@ -193,6 +193,13 @@ Popup {
             color: Theme.textDim
             wrapMode: Text.Wrap
         }
+    }
+
+    /* 0.5.67：从状态栏重新调出（用户点底部进度条/任务文字时调用） */
+    function reopen() {
+        root.suppressPop = false
+        hideTimer.stop()
+        root.open()
     }
 
     /* 收到任一进度信号即弹出并刷新；total<=0 视为结束并延迟收起 */

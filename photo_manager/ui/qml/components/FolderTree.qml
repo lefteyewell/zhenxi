@@ -288,7 +288,7 @@ Item {
             Layout.fillHeight: true
             clip: true
             model: treeModel
-            ScrollBar.vertical: PMScrollBar { policy: ScrollBar.AsNeeded }
+            ScrollBar.vertical: PMScrollBar { policy: ScrollBar.AlwaysOn }
 
             delegate: Rectangle {
                 id: row

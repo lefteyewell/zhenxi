@@ -166,11 +166,15 @@ class IngestPipeline:
                      info.file_size, info.file_mtime, "failed", "extract error"),
                 )
                 stats["failed"] += 1
-            if i % 100 == 0:
+            if i % 100 == 0 or i == total:
+                # 0.5.67：i == total 也触发——重复导入时新文件很少（甚至 0 个），
+                # 原先凑不满 100 一次回调都不发，进度弹窗停在第 1 张（用户反馈）。
                 conn.commit()
                 if progress_cb:
                     progress_cb(i, total, info.file_path)
         conn.commit()
+        if total == 0 and progress_cb:
+            progress_cb(0, 0, "")  # 全部跳过：发一次空进度让弹窗收起
         stats["ingest_sec"] = round(time.perf_counter() - t0, 2)
         return stats
 

@@ -504,7 +504,7 @@ Rectangle {
             boundsBehavior: Flickable.StopAtBounds
 
             ScrollBar.vertical: PMScrollBar {
-                policy: ScrollBar.AsNeeded
+                policy: ScrollBar.AlwaysOn
             }
 
             Column {

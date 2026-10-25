@@ -24,8 +24,8 @@ import QtQuick.Controls
    - 竖向滚动条的厚度是 width，横向滚动条的厚度是 height；
    - 只设置「厚度」维度，长度维度由 flickable 自动决定，绝不破坏布局。
    用法：
-       ScrollBar.vertical: PMScrollBar { policy: ScrollBar.AsNeeded }
-       ScrollBar.horizontal: PMScrollBar { policy: ScrollBar.AsNeeded } */
+       ScrollBar.vertical: PMScrollBar { policy: ScrollBar.AlwaysOn }
+       ScrollBar.horizontal: PMScrollBar { policy: ScrollBar.AlwaysOn } */
 ScrollBar {
     id: bar
 

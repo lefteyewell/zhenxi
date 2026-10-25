@@ -93,7 +93,7 @@ Item {
                 anchors.margins: Theme.spacingSmall
                 spacing: Theme.spacingTiny
                 clip: true
-                ScrollBar.vertical: PMScrollBar { policy: ScrollBar.AsNeeded }
+                ScrollBar.vertical: PMScrollBar { policy: ScrollBar.AlwaysOn }
                 model: historyModel
 
                 delegate: Rectangle {

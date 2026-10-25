@@ -31,10 +31,15 @@ Popup {
     objectName: "videoPlayer"
     modal: true
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+    /* 0.5.67：挂到窗口级 Overlay——此前 parent 是打开它的页面（中间栏），
+       900×620 的弹窗按页面局部坐标居中，页面比弹窗窄时 x 为负、y 顶到上缘，
+       表现为"弹窗跑到窗口右上角且显示不全"，✕ 按钮也跟着出窗。
+       尺寸同时按窗口收窄，小窗口不再溢出。 */
+    parent: Overlay.overlay
     x: Math.round((parent.width - width) / 2)
     y: Math.round((parent.height - height) / 2)
-    width: 900
-    height: 620
+    width: Math.min(900, (parent ? parent.width : 900) - 32)
+    height: Math.min(620, (parent ? parent.height : 620) - 32)
     padding: 0
 
     property string rawPath: ""
@@ -186,6 +191,19 @@ Popup {
                 width: 40
                 height: 30
                 onClicked: audio.volume = audio.volume > 0 ? 0 : 0.8
+            }
+            /* 0.5.67：常驻兜底——部分格式（.MTS/AVCHD 等）FFmpeg 后端可能
+               解出音轨但画面黑屏（不触发 failed），给用户一条确定的路。 */
+            PMButton {
+                objectName: "vpSystemPlayer"
+                text: I18n.tr("系统播放器")
+                height: 30
+                tooltip: I18n.tr("用系统默认播放器打开（内嵌播放异常时的兜底）")
+                onClicked: {
+                    player.stop()
+                    root.close()
+                    LibraryBridge.openExternal(root.rawPath)
+                }
             }
         }
     }

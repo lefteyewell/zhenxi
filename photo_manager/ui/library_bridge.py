@@ -123,8 +123,19 @@ class LibraryBridge(QObject):
             _QS("PhotoManager", "PhotoManager").value("autoStart", False, type=bool))
         self._tray_enabled = bool(
             _QS("PhotoManager", "PhotoManager").value("trayEnabled", True, type=bool))
+        # 0.5.67：启动窗口最大化（默认开）
+        self._startup_maximized = bool(
+            _QS("PhotoManager", "PhotoManager").value("ui/startMaximized", True, type=bool))
         # 0.5.49：自动语义索引挂起标志（分析链占用 _busy 时暂存，链尾接续）
         self._clip_pending = False
+        # 0.5.67：人脸聚类相似度阈值（用户可调，0.40~0.70，默认 0.50）。
+        # 进程内单一真值 + QSettings 持久化（同上，避免跨实例缓存不一致）。
+        try:
+            self._face_threshold = min(0.70, max(0.40, float(
+                _QS("PhotoManager", "PhotoManager")
+                .value("faces/clusterThreshold", 0.5, type=float))))
+        except (TypeError, ValueError):
+            self._face_threshold = 0.5
         self.search = PhotoSearch(self.db)
         self._busy = 0
         self._busy_lock = threading.Lock()
@@ -647,6 +658,106 @@ class LibraryBridge(QObject):
         except Exception:
             conn.rollback()
             return False
+
+    @Slot(int, result="QVariant")
+    def personFaceList(self, person_id: int) -> list[dict]:
+        """人物（0=未命名）的全部人脸清单：头像裁剪框 + 所在照片信息。
+
+        0.5.67 人物批量分拆：人物页「管理头像」弹出的人脸网格数据源。"""
+        conn = self.db.conn
+        if person_id > 0:
+            rows = conn.execute(
+                "SELECT f.id, f.photo_id, f.person_id, f.blur, f.bbox, p.file_path,"
+                " p.thumbnail_path, p.width, p.height, p.thumb_width, p.thumb_height,"
+                " p.file_name FROM faces f JOIN photos p ON p.id = f.photo_id"
+                " WHERE f.person_id=? AND f.hidden=0 ORDER BY f.photo_id, f.id",
+                (person_id,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT f.id, f.photo_id, f.person_id, f.blur, f.bbox, p.file_path,"
+                " p.thumbnail_path, p.width, p.height, p.thumb_width, p.thumb_height,"
+                " p.file_name FROM faces f JOIN photos p ON p.id = f.photo_id"
+                " WHERE (f.person_id IS NULL OR f.person_id='') AND f.hidden=0"
+                " ORDER BY f.photo_id, f.id",
+            ).fetchall()
+        out = []
+        for r in rows:
+            item = {"faceId": r[0], "photoId": r[1], "personId": r[2] or 0,
+                    "blurIdx": round(r[3]) if r[3] is not None else -1,
+                    "name": r[11]}
+            av = self._face_avatar((r[4], r[5], r[6], r[7], r[8], r[9], r[10]))
+            if av:
+                item.update(av)
+            out.append(item)
+        return out
+
+    @Slot(result=float)
+    def faceClusterThreshold(self) -> float:
+        """人脸聚类相似度阈值（0.40~0.70，默认 0.50；越大越严格）。
+
+        0.5.67 开放给用户：设置 → 智能分析 → 人脸聚类相似度阈值。
+        改动后需重新执行「人脸聚类」才生效。"""
+        return float(getattr(self, "_face_threshold", 0.5))
+
+    @Slot(float)
+    def setFaceClusterThreshold(self, v: float) -> None:
+        v = min(0.70, max(0.40, float(v)))
+        self._face_threshold = v
+        from PySide6.QtCore import QSettings
+
+        QSettings("PhotoManager", "PhotoManager").setValue(
+            "faces/clusterThreshold", v)
+
+    @Slot("QVariant", int, str, result=int)
+    def moveFacesToPerson(self, face_ids, person_id: int, new_name: str = "") -> int:
+        """批量把人脸移到指定人物（0=未命名；-1=新建人物，new_name 可选命名）。
+
+        0.5.67 人物分拆：只改归属标签，不动特征向量；来源人物 face_count
+        同步重算，散空的未命名人物行清理（与合并行为对齐）。返回移动数。"""
+        from PySide6.QtQml import QJSValue
+
+        if isinstance(face_ids, QJSValue):
+            face_ids = face_ids.toVariant()
+        ids = [int(i) for i in (face_ids or [])]
+        if not ids:
+            return 0
+        conn = self.db.conn
+        try:
+            conn.execute("BEGIN")
+            if person_id == -1:
+                cur = conn.execute("INSERT INTO persons(name) VALUES(?)",
+                                   (new_name or None,))
+                person_id = cur.lastrowid
+            marks = ",".join("?" * len(ids))
+            olds = {r[0] for r in conn.execute(
+                f"SELECT DISTINCT person_id FROM faces WHERE id IN ({marks})",
+                ids).fetchall() if r[0]}
+            conn.execute(
+                f"UPDATE faces SET person_id=? WHERE id IN ({marks})",
+                (None if person_id <= 0 else person_id, *ids),
+            )
+            if person_id > 0:
+                olds.add(person_id)
+            for op in olds:
+                conn.execute(
+                    "UPDATE persons SET face_count=(SELECT COUNT(*) FROM faces"
+                    " WHERE person_id=?) WHERE id=?", (op, op))
+                if op != person_id:
+                    left = conn.execute(
+                        "SELECT COUNT(*) FROM faces WHERE person_id=?",
+                        (op,)).fetchone()[0]
+                    has_name = conn.execute(
+                        "SELECT COALESCE(name,'') FROM persons WHERE id=?",
+                        (op,)).fetchone()[0]
+                    if left == 0 and not has_name:
+                        conn.execute("DELETE FROM persons WHERE id=?", (op,))
+            conn.commit()
+            return len(ids)
+        except Exception:
+            conn.rollback()
+            log.exception("批量移动人脸失败")
+            return 0
 
     @Slot(int, result=str)
     def faceCropUrl(self, face_id: int) -> str:
@@ -1171,6 +1282,33 @@ class LibraryBridge(QObject):
         return [{"name": "/", "path": "/", "isDir": True}]
 
     @Slot(str, result="QVariant")
+    def searchFolders(self, name: str) -> list[dict]:
+        """按名称搜索库内已收录的文件夹（0.6.6：目录选择弹窗的搜索框）。
+
+        范围 = photos.folder_path DISTINCT（用户实际有照片的目录），
+        大小写不敏感子串匹配，按路径排序，最多 60 条。
+        返回 [{name(目录名), path(完整路径), photoCount}]——name/path 字段
+        与 fsChildren 的行结构一致，目录选择弹窗的列表委托可直接复用。
+        """
+        q = (name or "").strip()
+        if not q:
+            return []
+        esc = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        rows = self.db.conn.execute(
+            "SELECT folder_path, COUNT(*) AS c FROM photos"
+            " WHERE folder_path LIKE ? ESCAPE '\\'"
+            " GROUP BY folder_path ORDER BY folder_path LIMIT 60",
+            (f"%{esc}%",)).fetchall()
+        from pathlib import Path as _P
+
+        out = []
+        for fp, cnt in rows:
+            norm = (fp or "").replace("\\", "/")
+            out.append({"name": _P(norm).name or norm,
+                        "path": fp, "photoCount": cnt})
+        return out
+
+    @Slot(str, result="QVariant")
     def fsChildren(self, path: str) -> list[dict]:
         """列出目录内容（目录在前、名称排序）；空/根路径返回盘符或 /。"""
         if not path:
@@ -1602,6 +1740,7 @@ class LibraryBridge(QObject):
         dest = Path(dest_dir)
         dest.mkdir(parents=True, exist_ok=True)
         ok = fail = 0
+        self._export_fail_names = []
         try:
             for pid in ids:
                 r = self.db.conn.execute(
@@ -1622,55 +1761,68 @@ class LibraryBridge(QObject):
                         continue
                     from PIL import Image, ImageOps  # noqa: PLC0415
 
-                    with Image.open(src) as im:
-                        im.load()
-                        # 转码时统一 bake 方向：EXIF 旋转进像素，显示不再依赖阅读器
-                        im = ImageOps.exif_transpose(im)
+                    # 0.5.67：RAW（CR2/NEF/ARW 等）Pillow 打不开 → 用 rawpy 解码。
+                    # 此前 RAW 走重编码路径必失败，"只能导出原片"（用户反馈）。
+                    from photo_manager.core.extractor import _RAW_EXTS as _PM_RAW_EXTS
+
+                    if src.suffix.lower() in _PM_RAW_EXTS:
+                        import rawpy  # noqa: PLC0415
+
+                        with rawpy.imread(str(src)) as raw:
+                            rgb = raw.postprocess(use_camera_wb=True)
+                        im = Image.fromarray(rgb)
                         w, h = im.size
-                        short = min(w, h)
-                        if short_edge > 0 and short > short_edge:
-                            scale = short_edge / short
-                            im = im.resize(
-                                (max(1, round(w * scale)), max(1, round(h * scale))),
-                                Image.LANCZOS,
-                            )
-                        if fmt == "original":
-                            ext = src.suffix.lower().lstrip(".")
-                            pair = {"jpg": ("JPEG", ".jpg"), "jpeg": ("JPEG", ".jpg"),
-                                    "png": ("PNG", ".png"), "webp": ("WEBP", ".webp"),
-                                    "tif": ("TIFF", ".tiff"), "tiff": ("TIFF", ".tif")}.get(ext)
-                            if pair is None:  # 冷门原格式：按原文件直接复制（不缩放降级）
-                                target = dest / f"{src.stem}_{pid}{src.suffix}"
-                                shutil.copy2(src, target)
-                                ok += 1
-                                self._record_export(pid, target.name, dest,
-                                                    "original",
-                                                    "original" if short_edge == 0
-                                                    else f"s{short_edge}")
-                                continue
-                            pil_fmt, ext2 = pair
-                        else:
-                            pil_fmt, ext2 = self.EXPORT_FORMATS[fmt]
-                        target = dest / f"{src.stem}{ext2}"
-                        if target.exists():
-                            target = dest / f"{src.stem}_{pid}{ext2}"
-                        kw: dict = {}
-                        if pil_fmt in ("JPEG", "WEBP"):
-                            kw["quality"] = 92
-                        if pil_fmt != "PNG":
-                            exif = im.info.get("exif")
-                            if exif:
-                                kw["exif"] = exif
-                        icc = im.info.get("icc_profile")
-                        if icc:
-                            kw["icc_profile"] = icc
-                        im.save(target, pil_fmt, **kw)
+                    else:
+                        with Image.open(src) as opened:
+                            opened.load()
+                            # 转码时统一 bake 方向：EXIF 旋转进像素，显示不再依赖阅读器
+                            im = ImageOps.exif_transpose(opened)
+                        w, h = im.size
+                    short = min(w, h)
+                    if short_edge > 0 and short > short_edge:
+                        scale = short_edge / short
+                        im = im.resize(
+                            (max(1, round(w * scale)), max(1, round(h * scale))),
+                            Image.LANCZOS,
+                        )
+                    if fmt == "original":
+                        ext = src.suffix.lower().lstrip(".")
+                        pair = {"jpg": ("JPEG", ".jpg"), "jpeg": ("JPEG", ".jpg"),
+                                "png": ("PNG", ".png"), "webp": ("WEBP", ".webp"),
+                                "tif": ("TIFF", ".tiff"), "tiff": ("TIFF", ".tif")}.get(ext)
+                        if pair is None:  # 冷门原格式：按原文件直接复制（不缩放降级）
+                            target = dest / f"{src.stem}_{pid}{src.suffix}"
+                            shutil.copy2(src, target)
+                            ok += 1
+                            self._record_export(pid, target.name, dest,
+                                                "original",
+                                                "original" if short_edge == 0
+                                                else f"s{short_edge}")
+                            continue
+                        pil_fmt, ext2 = pair
+                    else:
+                        pil_fmt, ext2 = self.EXPORT_FORMATS[fmt]
+                    target = dest / f"{src.stem}{ext2}"
+                    if target.exists():
+                        target = dest / f"{src.stem}_{pid}{ext2}"
+                    kw: dict = {}
+                    if pil_fmt in ("JPEG", "WEBP"):
+                        kw["quality"] = 92
+                    if pil_fmt != "PNG":
+                        exif = im.info.get("exif")
+                        if exif:
+                            kw["exif"] = exif
+                    icc = im.info.get("icc_profile")
+                    if icc:
+                        kw["icc_profile"] = icc
+                    im.save(target, pil_fmt, **kw)
                     ok += 1
                     self._record_export(pid, target.name, dest,
                                         fmt, "original" if short_edge == 0
                                         else f"s{short_edge}")
                 except Exception as e:  # noqa: BLE001
                     fail += 1
+                    self._export_fail_names.append(r[1])
                     log.warning("导出失败 %s: %s", src, e)
         finally:
             self._release_busy()
@@ -1681,6 +1833,12 @@ class LibraryBridge(QObject):
             msg += f"（{fmt_txt} · {res_txt}）"
         if fail:
             msg += _tr(" · 失败 {p1} 张").format(p1=fail)
+            # 0.5.67：列出让失败的具体文件（如损坏的 RAW——文件本身问题，
+            # 非导出缺陷；用户此前 3 张失败即 SampleRAW 下载不完整的坏文件）
+            if fail <= 6:
+                msg += "：" + "、".join(self._export_fail_names[-fail:])
+            else:
+                msg += "：" + "、".join(self._export_fail_names[:4]) + _tr(" 等")
         self._finish(msg)
 
     # ---------- 预删除（移出管理）：移动到指定文件夹并从索引清除 ----------
@@ -1853,24 +2011,27 @@ class LibraryBridge(QObject):
             conn.commit()
             return {"checked": total, "missing": missing}
 
-        self._spawn("reindex", "索引检查", self._run_with_progress(task))
+        self._spawn("reindex", "索引检查", self._run_with_progress(task, "索引检查"))
         return ""
 
     # ---------- 库完整性校验（只读）：缺失 / 被改动 / 缩略图丢失 / 分析失败 ----------
     @Slot(result=str)
-    def integrityCheck(self) -> str:
+    @Slot(str, result=str)
+    def integrityCheck(self, folder: str = "") -> str:
         """后台**只读**校验：比对索引与磁盘，完成后 emit integrityFinished(JSON 摘要)。
 
         校验本身不改任何数据；发现的问题由用户在报告中决定如何处理。
+        0.5.67：folder 非空时只校验该文件夹（含子文件夹）——范围选择。
         """
 
         def task(prog):
             from photo_manager.core.integrity import check_integrity
-            rep = check_integrity(self.db, prog)
+            rep = check_integrity(self.db, prog, folder=folder)
             self._integrity = rep
             c = rep["counts"]
             self.integrityFinished.emit(json.dumps(
-                {"total": rep["total"], "ok": rep["ok"], "counts": c}))
+                {"total": rep["total"], "ok": rep["ok"], "counts": c,
+                 "scope": rep.get("scope", "全部照片")}))
             problems = sum(c.values())
             if problems == 0:
                 self._finish(_tr("完整性校验完成：{p1} 张全部正常").format(p1=rep['total']))
@@ -1881,11 +2042,12 @@ class LibraryBridge(QObject):
                     + _tr(" · 缩略图丢失 {p1} · 分析失败 {p2}）").format(p1=c['thumbMissing'], p2=c['error']))
             return rep
 
-        self._spawn("integrity", "完整性校验", self._run_with_progress(task))
+        self._spawn("integrity", "完整性校验", self._run_with_progress(task, "完整性校验"))
         return ""
 
     @Slot(result=str)
-    def deepDecodeCheck(self) -> str:
+    @Slot(str, result=str)
+    def deepDecodeCheck(self, folder: str = "") -> str:
         """后台**深度解码检查**（0.5.64）：对非常规格式逐张试全图解码，
         发现损坏文件写 photos.decode_error=1，完成后重跑完整性校验刷新报告。
 
@@ -1898,15 +2060,16 @@ class LibraryBridge(QObject):
 
             conn = sqlite3.connect(self.db.path, timeout=30)
             try:
-                rep = deep_decode_check(conn, prog)
+                rep = deep_decode_check(conn, prog, folder=folder)
             finally:
                 conn.close()
             # 深检完成后重跑只读校验刷新报告（含新标记的 decodeError 类别）
-            rep2 = check_integrity(self.db, prog)
+            rep2 = check_integrity(self.db, prog, folder=folder)
             self._integrity = rep2
             c = rep2["counts"]
             self.integrityFinished.emit(json.dumps(
-                {"total": rep2["total"], "ok": rep2["ok"], "counts": c}))
+                {"total": rep2["total"], "ok": rep2["ok"], "counts": c,
+                 "scope": rep2.get("scope", "全部照片")}))
             if rep["damaged"]:
                 self._finish(
                     _tr("深度解码检查：扫描 {p1} 张非常规格式，").format(p1=rep['scanned'])
@@ -1917,7 +2080,7 @@ class LibraryBridge(QObject):
                     + _tr("未发现损坏（用时 {p1} 秒）").format(p1=rep['elapsed']))
             return rep
 
-        self._spawn("deepdecode", "深度解码检查", self._run_with_progress(task))
+        self._spawn("deepdecode", "深度解码检查", self._run_with_progress(task, "深度解码检查"))
         return ""
 
     @Slot(str, int, int, result="QVariant")
@@ -3225,10 +3388,10 @@ class LibraryBridge(QObject):
             # 检测后自动聚类（与自动分析链行为一致）
             from photo_manager.core.facecluster import FaceClusterer
 
-            stats["cluster"] = FaceClusterer(self.db).run()
+            stats["cluster"] = FaceClusterer(self.db, threshold=self.faceClusterThreshold()).run()
             return stats
 
-        self._spawn("faces", "人脸检测", self._run_with_progress(task))
+        self._spawn("faces", "人脸检测", self._run_with_progress(task, "人脸检测"))
         return ""
 
     @Slot(int, result=str)
@@ -3241,7 +3404,7 @@ class LibraryBridge(QObject):
                 progress_cb=lambda done, total, path: prog(done, total)
             )
 
-        self._spawn("ocr", "文字识别", self._run_with_progress(task))
+        self._spawn("ocr", "文字识别", self._run_with_progress(task, "文字识别"))
         return ""
 
     @Slot(int, result=str)
@@ -3254,7 +3417,7 @@ class LibraryBridge(QObject):
                 progress_cb=lambda done, total: prog(done, total)
             )
 
-        self._spawn("hashes", "哈希计算", self._run_with_progress(task))
+        self._spawn("hashes", "哈希计算", self._run_with_progress(task, "哈希计算"))
         return ""
 
     @Slot(result=str)
@@ -3264,7 +3427,7 @@ class LibraryBridge(QObject):
         def task(prog):
             return EventClusterer(self.db).run(progress_cb=prog)
 
-        self._spawn("events", "事件聚类", self._run_with_progress(task))
+        self._spawn("events", "事件聚类", self._run_with_progress(task, "事件聚类"))
         return ""
 
     @Slot(result=str)
@@ -3272,11 +3435,11 @@ class LibraryBridge(QObject):
         from photo_manager.core.facecluster import FaceClusterer
 
         def task(prog):
-            return FaceClusterer(self.db).run(
+            return FaceClusterer(self.db, threshold=self.faceClusterThreshold()).run(
                 progress_cb=lambda done, total: prog(done, total)
             )
 
-        self._spawn("facecluster", "人脸聚类", self._run_with_progress(task))
+        self._spawn("facecluster", "人脸聚类", self._run_with_progress(task, "人脸聚类"))
         return ""
 
     @Slot(result=bool)
@@ -3326,14 +3489,58 @@ class LibraryBridge(QObject):
 
     @Slot(str, result=str)
     def i18nCatalog(self, code: str) -> str:
-        """返回语言包 JSON 文本（QML XHR 读本地文件受限，经桥接读取）。"""
+        """返回语言包 JSON 文本（QML XHR 读本地文件受限，经桥接读取）。
+
+        0.6.2：支持用户自装语言包——查找顺序：数据目录 i18n/ 优先，
+        其次内置 QML_DIR/i18n/。用户包放 <数据库目录>/i18n/<code>.json。
+        """
+        from pathlib import Path
+
         from photo_manager import QML_DIR
 
-        p = QML_DIR / "i18n" / f"{code}.json"
-        try:
-            return p.read_text(encoding="utf-8")
-        except OSError:
-            return "{}"
+        bases = [Path(self.db.path).resolve().parent / "i18n",
+                 QML_DIR / "i18n"]
+        for base in bases:
+            p = base / f"{code}.json"
+            if p.exists():
+                try:
+                    return p.read_text(encoding="utf-8")
+                except OSError:
+                    continue
+        return "{}"
+
+    @Slot(result=str)
+    def i18nLanguages(self) -> str:
+        """列出可用语言：[{code, name}]（0.6.2，供语言切换菜单）。
+
+        中文为源语言永远在列；其余 = 内置包 + 数据目录 i18n/ 用户包。
+        语言显示名取包内 "_name" 键（语言包自声明，如 "English"/"Français"）。
+        """
+        import json as _json
+        from pathlib import Path
+
+        from photo_manager import QML_DIR
+
+        langs = [{"code": "zh", "name": "中文"}]
+        seen = {"zh"}
+        bases = [QML_DIR / "i18n",
+                 Path(self.db.path).resolve().parent / "i18n"]
+        for base in bases:
+            if not base.is_dir():
+                continue
+            for p in sorted(base.glob("*.json")):
+                code = p.stem
+                if code in seen:
+                    continue
+                name = code
+                try:
+                    head = _json.loads(p.read_text(encoding="utf-8"))
+                    name = str(head.get("_name") or code)
+                    seen.add(code)
+                except Exception:  # noqa: BLE001 — 损坏包跳过
+                    continue
+                langs.append({"code": code, "name": name})
+        return _json.dumps(langs)
 
     @Slot(str)
     def setUiLang(self, code: str) -> None:
@@ -3381,6 +3588,21 @@ class LibraryBridge(QObject):
             qs.sync()
         # 无论成败都发信号：失败时回填当前真值，设置里的勾选自动回滚
         self.autoStartChanged.emit(self._auto_start)
+
+    @Slot(result=bool)
+    def startupMaximizedEnabled(self) -> bool:
+        """启动时窗口最大化（0.5.67 新增，默认开）。进程内单一真值。"""
+        return getattr(self, "_startup_maximized", True)
+
+    @Slot(bool)
+    def setStartupMaximizedEnabled(self, on: bool) -> None:
+        from PySide6.QtCore import QSettings
+
+        on = bool(on)
+        self._startup_maximized = on
+        qs = QSettings("PhotoManager", "PhotoManager")
+        qs.setValue("ui/startMaximized", on)
+        qs.sync()
 
     @Slot(result=bool)
     def trayEnabled(self) -> bool:
@@ -3610,14 +3832,18 @@ class LibraryBridge(QObject):
             finally:
                 conn.close()
 
-        self._spawn("clip", "语义向量", self._run_with_progress(task))
+        self._spawn("clip", "语义向量", self._run_with_progress(task, "语义向量"))
         return ""
 
-    def _run_with_progress(self, task):
-        """把 task(fn) 包成无进度回调的调用（进度通过 taskProgress 信号上报）。"""
+    def _run_with_progress(self, task, stage: str = ""):
+        """把 task(fn) 包成无进度回调的调用（进度通过 taskProgress 信号上报）。
+
+        0.6.6：stage 为任务名（与 _spawn 的 title 一致），随进度信号上报——
+        此前标签恒为空串，底部进度弹窗只显示数字不显示正在跑什么任务
+        （用户反馈：语义向量任务"没有显示正在后台执行什么任务"）。"""
         def run(*_a):
             def prog(done, total):
-                self.taskProgress.emit(done or 0, total or 0, "")
+                self.taskProgress.emit(done or 0, total or 0, stage)
             return task(prog)
         return run
 
@@ -3793,7 +4019,7 @@ class LibraryBridge(QObject):
                 if not cancel():
                     from photo_manager.core.facecluster import FaceClusterer
 
-                    cl = FaceClusterer(self.db).run(
+                    cl = FaceClusterer(self.db, threshold=self.faceClusterThreshold()).run(
                         progress_cb=lambda d, t: self.taskProgress.emit(
                             d, t, "人脸聚类"))
                     stats["cluster"] = cl

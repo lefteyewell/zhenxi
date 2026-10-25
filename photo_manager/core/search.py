@@ -57,7 +57,10 @@ RESULT_COLS = (
 # 色标合法值（存储用英文键，UI 显示中文颜色名）
 COLOR_LABELS = ("red", "yellow", "green", "blue", "purple")
 _COLOR_ALIAS = {"红": "red", "黄": "yellow", "绿": "green",
-                "蓝": "blue", "紫": "purple"}
+                "蓝": "blue", "紫": "purple",
+                # 0.6.3：全称别名（用户自然输入"红色"而非"红"）
+                "红色": "red", "黄色": "yellow", "绿色": "green",
+                "蓝色": "blue", "紫色": "purple"}
 
 _SAFE = re.compile(r"^[A-Za-z0-9_+]+$")
 _FIELD = re.compile(r"^([a-zA-Z]+):(.*)$")
@@ -606,13 +609,15 @@ class PhotoSearch:
             " ORDER BY photos.sort_key DESC, photos.id DESC LIMIT ? OFFSET ?",
             (*params, limit, offset),
         ).fetchall()
-        if not rows and not any(":" in t for t in tokens):
+        if not rows and not any(":" in t for t in tokens) and offset == 0:
             # 语义回退：纯文本且全文（文件名/OCR 等）零命中时，尝试以文搜图。
             # "室内"这类文件名与照片内文字都不含的词，只有走 CLIP 语义才有结果
             # （等价于 clip:室内；模型缺失或库中无向量时 _clip_search_ids 返回空，
             # 行为与之前一致）。显式带语法前缀的查询不回退，尊重用户意图。
             # 回退用比 clip: 更紧的窗口（topk20/±0.03）：回退结果对用户是"搜索结果"，
             # 宁少勿滥；探索性宽搜索请用 clip: 语法。
+            # 0.5.67：回退仅在第一页生效——此前忽略 offset，滚动加载更多时
+            # 每次都会把同一批语义结果再 append 一遍（用户反馈"滚动出现重复缩略图"）。
             ids = _clip_search_ids(self.db, q, topk=20, rel_drop=0.03)
             if ids:
                 marks = ",".join("?" * len(ids))

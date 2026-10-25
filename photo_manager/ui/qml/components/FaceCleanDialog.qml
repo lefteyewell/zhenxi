@@ -32,7 +32,12 @@ Dialog {
     signal messageRequested(string msg, string kind)
 
     modal: true
-    width: Math.min(parent ? parent.width - 60 : 800, 780)
+    /* 0.5.67：宽度 780 → 810（用户实测仍有水平溢出，加宽约半个关闭按钮） */
+    /* 0.6.6 宽高自适应：随内容自然宽度增长（英文文案更长），
+       上限夹到窗口内；下限 810 保证中文布局不回退 */
+    width: Math.min(parent ? parent.width - 40 : 840,
+                    Math.max(810, headerRow.implicitWidth + 56,
+                             bottomRow.implicitWidth + 56))
     height: Math.min(parent ? parent.height - 60 : 620, 600)
     x: (parent.width - width) / 2
     y: (parent.height - height) / 2
@@ -139,6 +144,7 @@ Dialog {
         spacing: 8
 
         RowLayout {
+            id: headerRow
             Layout.fillWidth: true
             Layout.preferredHeight: 44
             Layout.leftMargin: Theme.spacingMedium
@@ -154,6 +160,7 @@ Dialog {
                 font.pixelSize: 16
                 font.weight: Font.DemiBold
                 color: Theme.text
+                elide: Text.ElideRight
             }
             Text {
                 id: countText
@@ -161,14 +168,17 @@ Dialog {
                 font.family: Theme.fontFamily
                 font.pixelSize: 12
                 color: Theme.textDim
+                elide: Text.ElideRight
             }
-            Item { Layout.fillWidth: true }
             Text {
                 id: statusText
                 Layout.alignment: Qt.AlignVCenter
+                Layout.fillWidth: true
+                horizontalAlignment: Text.AlignRight
                 font.family: Theme.fontFamily
                 font.pixelSize: 11
                 color: Theme.textDim
+                elide: Text.ElideMiddle
             }
             PMButton {
                 objectName: "faceBlurBackfillBtn"
@@ -288,7 +298,7 @@ Dialog {
                 anchors.margins: Theme.spacingSmall
                 spacing: 4
                 clip: true
-                ScrollBar.vertical: PMScrollBar { policy: ScrollBar.AsNeeded }
+                ScrollBar.vertical: PMScrollBar { policy: ScrollBar.AlwaysOn }
                 model: faceModel
 
                 delegate: Rectangle {
@@ -423,7 +433,10 @@ Dialog {
             }
         }
 
-        Row {
+        /* 0.5.67：Row → RowLayout + 文本可收缩——普通 Row 不收缩子项，
+           勾选数字变长（"删除选中标签（N）"）曾把底部行撑出弹窗右缘（水平溢出回归）。 */
+        RowLayout {
+                id: bottomRow
             Layout.fillWidth: true
             Layout.preferredHeight: 44
             Layout.leftMargin: Theme.spacingMedium
@@ -432,15 +445,17 @@ Dialog {
             spacing: Theme.spacingSmall
 
             Text {
-                anchors.verticalCenter: parent.verticalCenter
+                Layout.alignment: Qt.AlignVCenter
+                Layout.maximumWidth: parent.width * 0.42
                 text: I18n.tr("共 ") + root.faceCount + I18n.tr(" 张达到阈值")
                       + (root.checkedFaceIds.length > 0
                          ? I18n.tr(" · 已勾选 ") + root.checkedFaceIds.length + I18n.tr(" 张") : "")
                 font.family: Theme.fontFamily
                 font.pixelSize: 12
                 color: Theme.textDim
+                elide: Text.ElideRight
             }
-            Item { Layout.fillWidth: true; width: 10 }
+            Item { Layout.fillWidth: true; Layout.preferredWidth: 10 }
             PMButton {
                 objectName: "faceBatchHideSelBtn"
                 tooltip: I18n.tr("把勾选的人脸设为隐藏（可逆，照片不受影响）")

@@ -17,10 +17,27 @@
  */
 import QtQuick
 
-/* 可拖动标题把手：按住弹窗标题区可把 Popup 移到任意位置，避免遮挡图片浏览区。
-   用法：放进弹窗头部 RowLayout 作为首个子元素（铺满头部宽度、位于标题/按钮之下层）：
+/* 可拖动标题把手：按住弹窗头部任意位置（含标题文字、空隙）可把 Popup 移到任意位置。
+   用法：放进弹窗头部 RowLayout 作为首个子元素：
          PopupDragHandle { target: root; Layout.fillWidth: true; Layout.preferredHeight: <头部高度> }
-   注意：不能用 Layout.fillHeight，否则外层 ColumnLayout 会把多余高度全部分给头部。 */
+   注意：不能用 Layout.fillHeight，否则外层 ColumnLayout 会把多余高度全部分给头部。
+
+   ★ 核心坑位（Qt 6.11 实测，qmltypes 铁证）：
+   QML MouseEvent 只有 x/y/button/buttons/modifiers/source/accepted 等，
+   【没有 globalX/globalY/globalPosition】——访问即 undefined！
+   · 0.5.x 原版用 isNaN(mouse.globalX) 守卫 → undefined 被拦 → 每次拖动
+     静默放弃 → 用户看到的"所有弹窗都拖不动"。
+   · 0.6.3 重写时删掉守卫 → target.x = _ox + (undefined-undefined) = NaN
+     → 弹窗瞬移到不可渲染坐标：视觉消失但 opened 仍为 true（open() 变
+     空操作、状态栏卡在打开前文案）→ 用户看到的"按下即消失且永不再弹"。
+   正解：用 mapToItem(null) 取窗口场景坐标（任何 Qt 6 版本都存在），
+   增量拖动，并对结果做 isFinite 双保险。
+
+   0.6.4：命中区横向扩展覆盖整个头部（按 target.contentItem 宽度夹紧，
+   不越出弹窗边界——越界的按下会被 CloseOnPressOutside 判为点击外部
+   直接关弹窗）。标题 Text 不拦截鼠标，事件落到本区即可拖动；按钮是
+   更晚绘制的兄弟控件，优先接收自己的点击。判定用 mouse.buttons，
+   preventStealing 防被滚动容器抢占。 */
 Item {
     id: root
 
@@ -33,20 +50,46 @@ Item {
     property real _oy: 0
 
     MouseArea {
-        anchors.fill: parent
+        id: ma
+        anchors.verticalCenter: parent.verticalCenter
+        height: Math.max(parent.height, 44)
         cursorShape: Qt.SizeAllCursor
+        preventStealing: true
+        /* 命中区横向范围 = 弹窗内容区内、把手上/下方一行：左缘贴内容区
+           左边，右缘贴内容区右边，永不出界（越界按下会被
+           CloseOnPressOutside 判定为点击外部而关掉弹窗）。 */
+        x: {
+            if (!root.target || !root.target.contentItem)
+                return 0
+            var p = root.mapToItem(root.target.contentItem, 0, 0)
+            return -Math.max(0, p.x)
+        }
+        width: {
+            if (!root.target || !root.target.contentItem)
+                return parent.width
+            var p = root.mapToItem(root.target.contentItem, 0, 0)
+            return Math.max(parent.width,
+                            root.target.contentItem.width - p.x)
+        }
         onPressed: (mouse) => {
-            if (!root.active || isNaN(mouse.globalX) || isNaN(mouse.globalY)) return
-            root._gx = mouse.globalX
-            root._gy = mouse.globalY
+            if (!root.active || !(mouse.buttons & Qt.LeftButton)) return
+            var p = ma.mapToItem(null, mouse.x, mouse.y)
+            if (!isFinite(p.x) || !isFinite(p.y)) return
+            root._gx = p.x
+            root._gy = p.y
             root._ox = root.target.x
             root._oy = root.target.y
         }
         onPositionChanged: (mouse) => {
-            if (!root.active || !pressed) return
-            if (isNaN(mouse.globalX) || isNaN(mouse.globalY)) return
-            root.target.x = root._ox + (mouse.globalX - root._gx)
-            root.target.y = root._oy + (mouse.globalY - root._gy)
+            if (!root.active || !(mouse.buttons & Qt.LeftButton)) return
+            var p = ma.mapToItem(null, mouse.x, mouse.y)
+            var nx = root._ox + (p.x - root._gx)
+            var ny = root._oy + (p.y - root._gy)
+            /* 双保险：坐标异常（undefined/NaN）时放弃本次移动，
+               绝不把弹窗打到不可渲染位置 */
+            if (!isFinite(nx) || !isFinite(ny)) return
+            root.target.x = nx
+            root.target.y = ny
         }
     }
 }

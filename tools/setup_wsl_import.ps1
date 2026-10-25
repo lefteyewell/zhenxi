@@ -1,7 +1,7 @@
 # 阶段0 - 从 TUNA 镜像导入 Ubuntu 22.04 到 WSL2
 # 需以管理员身份运行（内核更新需要）。
 $ErrorActionPreference = 'Continue'
-$log = 'D:\trae\software\photo management\logs\wsl_import.log'
+$log = Join-Path $PSScriptRoot '..\logs\wsl_import.log'
 New-Item -ItemType Directory -Force -Path (Split-Path $log) | Out-Null
 
 function Log($msg) {
@@ -17,7 +17,7 @@ try {
     Log "退出码: $LASTEXITCODE"
 
     # 用法：把 ubuntu-jammy-wsl-amd64.rootfs.tar.gz 放到系统临时目录后运行本脚本
-    $wslDir = "D:\wsl\Ubuntu-22.04"
+    $wslDir = Join-Path $env:LOCALAPPDATA 'wsl\Ubuntu-22.04'
     $rootfs = Join-Path $env:TEMP "ubuntu-jammy-wsl-amd64.rootfs.tar.gz"
     Log "[2/3] 导入 Ubuntu-22.04（tar.gz -> $wslDir）..."
     New-Item -ItemType Directory -Force -Path $wslDir | Out-Null

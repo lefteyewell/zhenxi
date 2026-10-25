@@ -65,11 +65,15 @@ Dialog {
     property bool _clipAuto: false
     property bool _autoStart: false
     property bool _trayEnabled: true
+    property bool _startMax: true   /* 0.5.67 启动窗口最大化 */
+    property real _faceThr: 0.5   /* 0.5.67 人脸聚类相似度阈值 */
 
     function openSettings() {
         _clipAuto = LibraryBridge ? LibraryBridge.clipAutoIndexEnabled() : false
         _autoStart = LibraryBridge ? LibraryBridge.autoStartEnabled() : false
         _trayEnabled = LibraryBridge ? LibraryBridge.trayEnabled() : true
+        _startMax = LibraryBridge ? LibraryBridge.startupMaximizedEnabled() : true
+        _faceThr = LibraryBridge ? LibraryBridge.faceClusterThreshold() : 0.5
         darkChk.checked = (ThemeController ? ThemeController.dark : false)
         sceneTagsArea.text = LibraryBridge ? LibraryBridge.sceneTags() : ""
         copyLibChk.checked = LibraryBridge ? LibraryBridge.copyToLibraryEnabled() : false
@@ -150,7 +154,7 @@ Dialog {
                     onClicked: catNav.currentIndex = index
                 }
             }
-            ScrollBar.vertical: PMScrollBar { policy: ScrollBar.AsNeeded }
+            ScrollBar.vertical: PMScrollBar { policy: ScrollBar.AlwaysOn }
         }
 
         /* 右：分页内容 */
@@ -186,6 +190,55 @@ Dialog {
                           + I18n.tr("开启本开关也会立即为已有照片补跑（首次较慢，每张约几秒）。")
                           + I18n.tr("之后即可用「clip:文字」做中文语义搜索、场景标签与场景建议。")
                           + I18n.tr("需 Chinese-CLIP 模型就位（models/clip/）。")
+                    font.family: Theme.fontFamily
+                    font.pixelSize: 11
+                    color: Theme.textDim
+                    wrapMode: Text.Wrap
+                }
+
+                /* 0.5.67：人脸聚类相似度阈值（用户可调） */
+                Text {
+                    text: I18n.tr("人脸聚类")
+                    font.family: Theme.fontFamily
+                    font.pixelSize: 12
+                    font.weight: Font.DemiBold
+                    color: Theme.textDim
+                }
+                Row {
+                    spacing: Theme.spacingMedium
+                    Text {
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: I18n.tr("相似度阈值")
+                        font.family: Theme.fontFamily
+                        font.pixelSize: 12
+                        color: Theme.text
+                    }
+                    Slider {
+                        id: faceThrSlider
+                        anchors.verticalCenter: parent.verticalCenter
+                        from: 0.40
+                        to: 0.70
+                        stepSize: 0.01
+                        value: root._faceThr
+                        onMoved: {
+                            root._faceThr = value
+                            if (LibraryBridge) LibraryBridge.setFaceClusterThreshold(value)
+                        }
+                    }
+                    Text {
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: root._faceThr.toFixed(2)
+                        font.family: Theme.fontFamily
+                        font.pixelSize: 12
+                        font.weight: Font.DemiBold
+                        color: Theme.primary
+                    }
+                }
+                Text {
+                    Layout.fillWidth: true
+                    text: I18n.tr("越大越严格：调高会把相像的人物拆开（宁分勿合，需手动合并），"
+                                  + "调低合并更激进（误并风险增大）。"
+                                  + "改动后需重新执行「人脸聚类」才生效（工具中心 → 人脸聚类）。")
                     font.family: Theme.fontFamily
                     font.pixelSize: 11
                     color: Theme.textDim
@@ -227,7 +280,7 @@ Dialog {
                     Layout.fillHeight: true
                     clip: true
                     model: ListModel { id: rootsModel }
-                    ScrollBar.vertical: PMScrollBar { policy: ScrollBar.AsNeeded }
+                    ScrollBar.vertical: PMScrollBar { policy: ScrollBar.AlwaysOn }
                     delegate: Rectangle {
                         width: rootsList.width
                         height: 34
@@ -322,6 +375,21 @@ Dialog {
                     text: I18n.tr("关闭窗口时最小化到托盘继续运行")
                     checked: root._trayEnabled
                     onClicked: if (LibraryBridge) LibraryBridge.setTrayEnabled(checked)
+                }
+                CheckBox {
+                    id: startMaxChk
+                    objectName: "startMaxChk"
+                    text: I18n.tr("启动时窗口最大化")
+                    checked: root._startMax
+                    onClicked: if (LibraryBridge) LibraryBridge.setStartupMaximizedEnabled(checked)
+                }
+                Text {
+                    Layout.fillWidth: true
+                    text: I18n.tr("0.5.67 新增，默认开启：程序启动即最大化窗口（下次启动生效）。")
+                    font.family: Theme.fontFamily
+                    font.pixelSize: 11
+                    color: Theme.textDim
+                    wrapMode: Text.Wrap
                 }
                 Connections {
                     target: LibraryBridge

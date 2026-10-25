@@ -57,6 +57,10 @@ Dialog {
     property string reportJson: ""
     property string currentKind: "missing"
     property var counts: ({})
+    /* 0.5.67：检查范围（""=全部照片；非空=指定文件夹，含子文件夹） */
+    property string scopeFolder: ""
+
+    signal checkRequested(string folder)
 
     readonly property var kinds: [
         { key: "missing",      label: I18n.tr("文件缺失"),   desc: I18n.tr("磁盘上已找不到（系统外删除或外接盘未连接）"), fixable: false },
@@ -107,15 +111,48 @@ Dialog {
         anchors.margins: Theme.spacingMedium
         spacing: Theme.spacingSmall
 
+        /* 0.5.67：检查范围选择（全部照片 / 指定文件夹含子文件夹） */
         RowLayout {
             Layout.fillWidth: true
+            spacing: Theme.spacingSmall
+
             Text {
-                id: totalText
-                Layout.fillWidth: true
+                text: I18n.tr("范围：")
                 font.family: Theme.fontFamily
                 font.pixelSize: 12
                 color: Theme.textDim
-                text: I18n.tr("共 0 张 · 正常 0 张")
+            }
+            ComboBox {
+                id: scopeBox
+                objectName: "integrityScopeBox"
+                Layout.preferredWidth: 150
+                height: 28
+                font.family: Theme.fontFamily
+                font.pixelSize: 12
+                model: [I18n.tr("全部照片"), I18n.tr("指定文件夹…")]
+                onActivated: (i) => {
+                    if (i === 1) {
+                        scopeFolderPicker.openDialog(root.scopeFolder)
+                    } else {
+                        root.scopeFolder = ""
+                    }
+                }
+            }
+            Text {
+                Layout.fillWidth: true
+                visible: root.scopeFolder !== ""
+                text: root.scopeFolder
+                font.family: Theme.fontFamily
+                font.pixelSize: 11
+                color: Theme.text
+                elide: Text.ElideMiddle
+            }
+            PMButton {
+                objectName: "integrityRerunBtn"
+                tooltip: I18n.tr("按所选范围重新执行只读校验")
+                text: I18n.tr("重新校验")
+                height: 28
+                onClicked: root.checkRequested(root.scopeFolder)
             }
             PMButton {
                 objectName: "integrityDeepCheckBtn"
@@ -124,9 +161,19 @@ Dialog {
                 text: I18n.tr("深度解码检查")
                 height: 28
                 onClicked: {
-                    if (LibraryBridge) LibraryBridge.deepDecodeCheck()
+                    if (LibraryBridge) LibraryBridge.deepDecodeCheck(root.scopeFolder)
                 }
             }
+        }
+
+        FolderPickerDialog {
+            id: scopeFolderPicker
+            dialogTitle: I18n.tr("选择检查范围文件夹（含子文件夹）")
+            onPathChosen: (folder) => {
+                root.scopeFolder = folder
+                scopeBox.currentIndex = 1
+            }
+            onClosed: scopeBox.currentIndex = root.scopeFolder !== "" ? 1 : 0
         }
 
         /* 四类问题：点击切换查看清单 */
@@ -205,7 +252,7 @@ Dialog {
                 anchors.margins: Theme.spacingSmall
                 clip: true
                 spacing: Theme.spacingTiny
-                ScrollBar.vertical: PMScrollBar { policy: ScrollBar.AsNeeded }
+                ScrollBar.vertical: PMScrollBar { policy: ScrollBar.AlwaysOn }
                 model: issueModel
                 delegate: RowLayout {
                     width: issueList.width

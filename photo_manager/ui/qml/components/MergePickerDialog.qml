@@ -89,7 +89,7 @@ Popup {
                 anchors.margins: Theme.spacingTiny
                 spacing: 2
                 clip: true
-                ScrollBar.vertical: PMScrollBar { policy: ScrollBar.AsNeeded }
+                ScrollBar.vertical: PMScrollBar { policy: ScrollBar.AlwaysOn }
                 model: itemsModel
                 delegate: Rectangle {
                     width: listView.width

@@ -120,7 +120,7 @@ Item {
                 anchors.fill: parent
                 anchors.margins: Theme.spacingSmall
                 clip: true
-                ScrollBar.vertical: PMScrollBar { policy: ScrollBar.AsNeeded }
+                ScrollBar.vertical: PMScrollBar { policy: ScrollBar.AlwaysOn }
 
                 Column {
                     width: sv.availableWidth

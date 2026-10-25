@@ -49,8 +49,14 @@ class _UnionFind:
             self.parent[rb] = ra
 
 
-def cluster_matrix(descriptors: np.ndarray, threshold: float, progress_cb=None) -> list[int]:
-    """返回每张脸的簇代表索引。分块矩阵乘法控内存。"""
+def cluster_matrix(descriptors: np.ndarray, threshold: float, progress_cb=None,
+                   photo_ids: np.ndarray | None = None) -> list[int]:
+    """返回每张脸的簇代表索引。分块矩阵乘法控内存。
+
+    0.5.67：photo_ids 提供时，同一张照片内的两张人脸不再互相并簇——
+    合影里不同人的脸经模糊/角度产生相似描述子时，单链并查集会把
+    「同照片的多张不同人脸」误并成同一人物（信息栏同号多张不同人脸）。
+    同照片跨簇仍可通过其他照片的链式相似间接连通，不影响正常合并。"""
     n = descriptors.shape[0]
     uf = _UnionFind(n)
     norm = descriptors / np.linalg.norm(descriptors, axis=1, keepdims=True)
@@ -63,6 +69,8 @@ def cluster_matrix(descriptors: np.ndarray, threshold: float, progress_cb=None) 
         rows = np.nonzero(sim.any(axis=1))[0]
         for r in rows:
             idx = np.nonzero(sim[r])[0]
+            if photo_ids is not None:
+                idx = idx[photo_ids[idx] != photo_ids[start + r]]
             for j in idx:
                 uf.union(start + r, int(j))
         done += block.shape[0]
@@ -79,7 +87,7 @@ class FaceClusterer:
     def run(self, progress_cb: Callable[[int, int], None] | None = None) -> dict:
         t0 = time.perf_counter()
         faces = self.db.conn.execute(
-            "SELECT f.id, f.descriptor, ep.event_id FROM faces f"
+            "SELECT f.id, f.descriptor, ep.event_id, f.photo_id FROM faces f"
             " LEFT JOIN event_photos ep ON ep.photo_id = f.photo_id"
         ).fetchall()
         if not faces:
@@ -100,6 +108,8 @@ class FaceClusterer:
                     "error": f"人脸特征缺失或长度异常（{len(bad)} 条），跳过聚类"}
         raw = b"".join(r[1] for r in faces)
         descriptors = np.frombuffer(raw, dtype=np.float32).reshape(n, dim)
+        # r = (f.id, f.descriptor, ep.event_id, f.photo_id)
+        photo_ids = np.array([r[3] for r in faces], dtype=np.int64)
 
         scoped = n > MAX_GLOBAL
         assign: list[int] = [None] * n  # noqa: RUF012
@@ -109,7 +119,9 @@ class FaceClusterer:
                 scope_map.setdefault(f[2] or -1, []).append(i)
             for scope, idxs in scope_map.items():
                 sub = descriptors[idxs]
-                reps = cluster_matrix(sub, self.threshold)
+                sub_pids = photo_ids[idxs] if photo_ids is not None else None
+                reps = cluster_matrix(sub, self.threshold,
+                                      photo_ids=sub_pids)
                 root_rep: dict[int, int] = {}
                 for local_i, rep in enumerate(reps):
                     global_i = idxs[local_i]
@@ -117,7 +129,8 @@ class FaceClusterer:
                         root_rep[rep] = global_i
                     assign[global_i] = root_rep[rep]
         else:
-            assign = cluster_matrix(descriptors, self.threshold, progress_cb)
+            assign = cluster_matrix(descriptors, self.threshold, progress_cb,
+                                    photo_ids=photo_ids)
 
         rep_to_person: dict[int, int] = {}
         person_rows = []

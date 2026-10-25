@@ -127,7 +127,7 @@ Item {
                             Layout.fillHeight: true
                             objectName: "statsYearList"
                             clip: true
-                            ScrollBar.vertical: PMScrollBar { policy: ScrollBar.AsNeeded }
+                            ScrollBar.vertical: PMScrollBar { policy: ScrollBar.AlwaysOn }
                             model: yearModel
                             delegate: RowLayout {
                                 width: parent ? parent.width : 0
@@ -172,7 +172,7 @@ Item {
                             Layout.fillHeight: true
                             objectName: "statsMonthList"
                             clip: true
-                            ScrollBar.vertical: PMScrollBar { policy: ScrollBar.AsNeeded }
+                            ScrollBar.vertical: PMScrollBar { policy: ScrollBar.AlwaysOn }
                             model: monthModel
                             delegate: RowLayout {
                                 width: parent ? parent.width : 0
@@ -217,7 +217,7 @@ Item {
                             Layout.fillHeight: true
                             objectName: "statsDeviceList"
                             clip: true
-                            ScrollBar.vertical: PMScrollBar { policy: ScrollBar.AsNeeded }
+                            ScrollBar.vertical: PMScrollBar { policy: ScrollBar.AlwaysOn }
                             model: deviceModel
                             delegate: RowLayout {
                                 width: parent ? parent.width : 0
@@ -262,7 +262,7 @@ Item {
                             Layout.fillHeight: true
                             objectName: "statsLocationList"
                             clip: true
-                            ScrollBar.vertical: PMScrollBar { policy: ScrollBar.AsNeeded }
+                            ScrollBar.vertical: PMScrollBar { policy: ScrollBar.AlwaysOn }
                             model: locationModel
                             delegate: RowLayout {
                                 width: parent ? parent.width : 0
@@ -306,7 +306,7 @@ Item {
                             Layout.fillHeight: true
                             objectName: "statsRatingList"
                             clip: true
-                            ScrollBar.vertical: PMScrollBar { policy: ScrollBar.AsNeeded }
+                            ScrollBar.vertical: PMScrollBar { policy: ScrollBar.AlwaysOn }
                             model: ratingModel
                             delegate: RowLayout {
                                 width: parent ? parent.width : 0

@@ -199,7 +199,7 @@ Popup {
                 anchors.margins: 4
                 clip: true
                 spacing: 2
-                ScrollBar.vertical: PMScrollBar { policy: ScrollBar.AsNeeded }
+                ScrollBar.vertical: PMScrollBar { policy: ScrollBar.AlwaysOn }
 
                 delegate: Item {
                     width: fileList.width

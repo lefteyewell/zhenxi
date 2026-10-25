@@ -503,7 +503,7 @@ Window {
                 orientation: ListView.Horizontal
                 spacing: 6
                 clip: true
-                ScrollBar.horizontal: PMScrollBar { policy: ScrollBar.AsNeeded }
+                ScrollBar.horizontal: PMScrollBar { policy: ScrollBar.AlwaysOn }
                 model: filmModel
 
                 delegate: Rectangle {

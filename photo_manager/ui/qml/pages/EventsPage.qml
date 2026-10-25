@@ -100,7 +100,7 @@ Item {
             Layout.bottomMargin: Theme.spacingMedium
             spacing: Theme.spacingSmall
             clip: true
-            ScrollBar.vertical: PMScrollBar { policy: ScrollBar.AsNeeded }
+            ScrollBar.vertical: PMScrollBar { policy: ScrollBar.AlwaysOn }
             model: eventsModel
 
             delegate: Rectangle {

@@ -1,7 +1,7 @@
 # 阶段0 - 启用 WSL2 并安装 Ubuntu 22.04
 # 需以管理员身份运行。日志固定写入项目 logs 目录。
 $ErrorActionPreference = 'Continue'
-$log = 'D:\trae\software\photo management\logs\wsl_setup.log'
+$log = Join-Path $PSScriptRoot '..\logs\wsl_setup.log'
 New-Item -ItemType Directory -Force -Path (Split-Path $log) | Out-Null
 
 function Log($msg) {

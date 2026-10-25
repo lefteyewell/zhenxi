@@ -39,14 +39,40 @@ Item {
     ListModel { id: itemsModel }
     property var selectedIds: []
     property bool _batchMode: false
-    /* 0.5.36：列表排序（0=数量多→少，后端默认序；1=名称 A→Z） */
+    /* 0.5.36：列表排序（0=数量多→少；1=名称 A→Z）。
+       0.5.67：①"按数量"此前只是后端默认序（按人物 id），并非数量序——显式
+       按 photoCount 降序；②名称排序改自然数序（人物1、人物2…人物10、
+       人物100，而不是 字符串序 的 人物1、人物10、人物100）。 */
     property int sortMode: 0
+
+    function _naturalCompare(a, b) {
+        var ra = String(a).split(/(\d+)/)
+        var rb = String(b).split(/(\d+)/)
+        for (var i = 0; i < Math.max(ra.length, rb.length); ++i) {
+            var xa = ra[i] || "", xb = rb[i] || ""
+            var na = parseInt(xa, 10), nb = parseInt(xb, 10)
+            if (!isNaN(na) && !isNaN(nb) && /^\d/.test(xa) && /^\d/.test(xb)) {
+                if (na !== nb) return na - nb
+            } else if (xa !== xb) {
+                return xa.localeCompare(xb, "zh")
+            }
+        }
+        return 0
+    }
 
     function _sortedArr(arr) {
         if (root.sortMode === 1)
             return arr.slice().sort(function (a, b) {
-                return String(a.name || a.cameraModel || "").localeCompare(
-                       String(b.name || b.cameraModel || ""), "zh")
+                return root._naturalCompare(
+                    String(a.name || a.cameraModel || ""),
+                    String(b.name || b.cameraModel || ""))
+            })
+        if (root.sortMode === 0)
+            return arr.slice().sort(function (a, b) {
+                var d = (b.photoCount || 0) - (a.photoCount || 0)
+                return d !== 0 ? d : root._naturalCompare(
+                    String(a.name || a.cameraModel || ""),
+                    String(b.name || b.cameraModel || ""))
             })
         return arr
     }
@@ -240,7 +266,7 @@ Item {
                     anchors.margins: Theme.spacingSmall
                     spacing: Theme.spacingTiny
                     clip: true
-                    ScrollBar.vertical: PMScrollBar { policy: ScrollBar.AsNeeded }
+                    ScrollBar.vertical: PMScrollBar { policy: ScrollBar.AlwaysOn }
                     model: itemsModel
 
                 delegate: Rectangle {
@@ -442,7 +468,7 @@ Item {
                 cellWidth: 124
                 cellHeight: 152
                 currentIndex: -1
-                ScrollBar.vertical: PMScrollBar { policy: ScrollBar.AsNeeded }
+                ScrollBar.vertical: PMScrollBar { policy: ScrollBar.AlwaysOn }
                 model: itemsModel
 
                 delegate: Rectangle {

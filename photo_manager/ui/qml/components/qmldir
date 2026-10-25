@@ -23,3 +23,5 @@ FaceCleanDialog 1.0 FaceCleanDialog.qml
 VideoPlayerDialog 1.0 VideoPlayerDialog.qml
 ScheduleTimeDialog 1.0 ScheduleTimeDialog.qml
 FirstRunDialog 1.0 FirstRunDialog.qml
+
+PersonFacesDialog 1.0 PersonFacesDialog.qml

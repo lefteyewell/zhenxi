@@ -107,6 +107,16 @@ class TrayController(QObject):
         w = self._window
         if w is not None:
             w.close()
+            # 0.5.67 兜底：正常关闭后进程应自行退出；若 5 秒后仍存活
+            # （收尾挂起，真机曾复现"图标消失但进程残留"），强制退出。
+            # 延时是给退出备份留出完成时间，避免中断备份。
+            from PySide6.QtCore import QTimer
+
+            def _force_quit():
+                app = QApplication.instance()
+                if app is not None and self._window is not None:
+                    app.quit()
+            QTimer.singleShot(5000, _force_quit)
             return
         app = QApplication.instance()
         if app is not None:

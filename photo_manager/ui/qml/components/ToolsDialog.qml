@@ -154,7 +154,7 @@ Popup {
             clip: true
             contentHeight: panelCol.height
 
-            ScrollBar.vertical: PMScrollBar { policy: ScrollBar.AsNeeded }
+            ScrollBar.vertical: PMScrollBar { policy: ScrollBar.AlwaysOn }
 
             Column {
                 id: panelCol

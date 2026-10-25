@@ -98,6 +98,23 @@ Popup {
         emptyText.visible = dirs.length === 0
     }
 
+    /* 0.6.6：搜索状态与过滤（searchActive 时 folderList 显示跨库搜索结果） */
+    property bool searchActive: false
+    function applyFolderFilter(text) {
+        var q = (text || "").trim()
+        searchActive = q.length > 0
+        if (!searchActive) {
+            emptyText.text = I18n.tr("（此文件夹没有子文件夹）")
+            refresh()
+            return
+        }
+        var res = LibraryBridge.searchFolders(q)
+        folderList.model = res
+        folderList.currentIndex = -1
+        emptyText.text = I18n.tr("库内没有名称包含「") + q + I18n.tr("」的文件夹")
+        emptyText.visible = res.length === 0
+    }
+
     function openDialog(initialPath) {
         root.currentPath = initialPath || LibraryBridge.fsLastRoot() || LibraryBridge.fsHome()
         refresh()
@@ -201,6 +218,33 @@ Popup {
             }
         }
 
+        /* 0.6.6：按名称搜索文件夹——跨库内已收录目录（import/export/备份等
+           选目标弹窗共用本组件）。有关键词时列表切换为搜索结果，
+           单击结果即进入该目录并清空搜索。 */
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.leftMargin: Theme.spacingMedium
+            Layout.rightMargin: Theme.spacingMedium
+            Layout.bottomMargin: Theme.spacingSmall
+            spacing: Theme.spacingSmall
+
+            TextField {
+                id: folderSearchField
+                objectName: "folderSearchField"
+                Layout.fillWidth: true
+                placeholderText: I18n.tr("按名称搜索文件夹（库内已收录的目录）")
+                font.family: Theme.fontFamily
+                font.pixelSize: 12
+                selectByMouse: true
+                onTextChanged: root.applyFolderFilter(text)
+            }
+            PMButton {
+                visible: root.searchActive
+                text: I18n.tr("清除")
+                onClicked: folderSearchField.text = ""
+            }
+        }
+
         Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -218,7 +262,7 @@ Popup {
                 anchors.margins: 4
                 clip: true
                 spacing: 2
-                ScrollBar.vertical: PMScrollBar { policy: ScrollBar.AsNeeded }
+                ScrollBar.vertical: PMScrollBar { policy: ScrollBar.AlwaysOn }
 
                 delegate: Item {
                     width: folderList.width
@@ -269,6 +313,8 @@ Popup {
                         onClicked: {
                             folderList.currentIndex = index
                             root.currentPath = modelData.path
+                            if (root.searchActive)
+                                folderSearchField.text = ""   /* 触发恢复浏览列表 */
                             root.refresh()
                         }
                     }

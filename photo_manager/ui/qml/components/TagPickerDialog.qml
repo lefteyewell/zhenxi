@@ -115,7 +115,7 @@ Dialog {
                 anchors.margins: Theme.spacingSmall
                 clip: true
                 spacing: Theme.spacingTiny
-                ScrollBar.vertical: PMScrollBar { policy: ScrollBar.AsNeeded }
+                ScrollBar.vertical: PMScrollBar { policy: ScrollBar.AlwaysOn }
                 model: treeModel
                 delegate: Rectangle {
                     width: treeView.width

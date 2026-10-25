@@ -65,3 +65,7 @@ SampleRAW/
 test_album/
 RAW_Samples_AllCameras.zip
 where_assets.txt
+
+# 打包事故隔离目录与历史产物（0.6.1）
+dist_corrupt_061/
+dist_old_*/

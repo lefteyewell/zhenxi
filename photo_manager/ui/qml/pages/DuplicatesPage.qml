@@ -107,7 +107,7 @@ Item {
             Layout.bottomMargin: Theme.spacingMedium
             spacing: Theme.spacingSmall
             clip: true
-            ScrollBar.vertical: PMScrollBar { policy: ScrollBar.AsNeeded }
+            ScrollBar.vertical: PMScrollBar { policy: ScrollBar.AlwaysOn }
             model: groupsModel
 
             delegate: Rectangle {
@@ -158,7 +158,7 @@ Item {
                         orientation: ListView.Horizontal
                         spacing: 6
                         clip: true
-                        ScrollBar.horizontal: PMScrollBar { policy: ScrollBar.AsNeeded }
+                        ScrollBar.horizontal: PMScrollBar { policy: ScrollBar.AlwaysOn }
                         model: groupCard.members.length
 
                         delegate: Rectangle {

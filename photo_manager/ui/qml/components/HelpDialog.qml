@@ -90,7 +90,7 @@ Popup {
             Layout.topMargin: Theme.spacingSmall
             clip: true
             contentHeight: bodyText.height + 40
-            ScrollBar.vertical: PMScrollBar { policy: ScrollBar.AsNeeded }
+            ScrollBar.vertical: PMScrollBar { policy: ScrollBar.AlwaysOn }
 
             Text {
                 id: bodyText

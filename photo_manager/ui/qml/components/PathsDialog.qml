@@ -126,7 +126,7 @@ Popup {
             Layout.topMargin: Theme.spacingSmall
             Layout.bottomMargin: Theme.spacingSmall
             clip: true
-            ScrollBar.vertical: PMScrollBar { policy: ScrollBar.AsNeeded }
+            ScrollBar.vertical: PMScrollBar { policy: ScrollBar.AlwaysOn }
             model: ListModel { id: pathsModel }
 
             function refresh() {

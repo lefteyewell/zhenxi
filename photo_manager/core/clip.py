@@ -22,7 +22,9 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-MODEL_ID = "cn-clip-vit-b-16"
+# 0.5.67：MODEL_ID 携带预处理版本（-cc1 = Resize+CenterCrop 对齐官方变换）。
+# 旧向量（无 -cc1 后缀）与新 ID 不匹配 → 检索自动忽略、补跑机制按新 ID 重建。
+MODEL_ID = "cn-clip-vit-b-16-cc1"
 SUBDIR = "clip"
 IMG_FILE = "vit-b-16.img.fp32.onnx"
 TXT_FILE = "vit-b-16.txt.fp32.onnx"
@@ -98,6 +100,11 @@ def prep_image(path: str | Path) -> np.ndarray:
     """读图并预处理为 [1,3,224,224] float32。
 
     cv2 无法解码 RAW（返回 None），RAW 必须走 rawpy；half_size 半尺寸解码足够 224 输入。
+
+    0.5.67：预处理对齐 Chinese-CLIP 官方变换——此前直接拉伸 224×224，竖幅/横幅
+    照片被压扁，图像向量与训练分布有偏移，语义匹配精度受损（用户反馈"不太准"）。
+    现改为：短边缩放到 224（保持长宽比）+ 中心裁剪 224×224。预处理版本随
+    MODEL_ID 升级（见 _PREP_VERSION），旧向量自动失效并由补跑机制重建。
     """
     path = str(path)
     if Path(path).suffix.lower() in RAW_EXTS:
@@ -110,7 +117,17 @@ def prep_image(path: str | Path) -> np.ndarray:
         if bgr is None:
             raise ValueError(f"无法读取图片: {path}")
         img = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
-    img = cv2.resize(img, (224, 224), interpolation=cv2.INTER_CUBIC)
+    h, w = img.shape[:2]
+    scale = 224.0 / min(h, w)
+    img = cv2.resize(img, (max(1, round(w * scale)), max(1, round(h * scale))),
+                     interpolation=cv2.INTER_CUBIC)
+    h, w = img.shape[:2]
+    top = max(0, (h - 224) // 2)
+    left = max(0, (w - 224) // 2)
+    img = img[top:top + 224, left:left + 224]
+    if img.shape[0] != 224 or img.shape[1] != 224:
+        # 极小图（短边不足 224 放大后仍不足）兜底：直接缩放
+        img = cv2.resize(img, (224, 224), interpolation=cv2.INTER_CUBIC)
     x = img.astype(np.float32) / 255.0
     return np.ascontiguousarray(np.transpose((x - MEAN) / STD, (2, 0, 1))[None])
 
