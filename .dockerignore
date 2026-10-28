@@ -1,0 +1,16 @@
+# Docker 构建上下文排除（kylin.Dockerfile 只需要 requirements.txt 与源码目录）
+dist*
+build*
+models
+SampleRAW
+data
+logs
+*.log
+*.md
+.github
+.venv*
+.workbuddy
+tests
+docs
+tools
+photo_manager

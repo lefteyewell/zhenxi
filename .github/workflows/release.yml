@@ -224,8 +224,10 @@ jobs:
 
       # 修复麒麟真机缺 libnsl.so.2 / gstreamer 导致 QtMultimedia 插件加载失败、启动即崩：
       # 内置 gstreamer 插件 + 递归收集运行库闭包进 _internal（main.py 启动时注入 GST 插件路径）
+      # fcitx 插件必须放 _internal/PySide6/Qt/plugins/platforminputcontexts/
+      # （Qt 只扫此目录；放 _internal/PySide6/plugins/ 不会被加载，QT_DEBUG_PLUGINS 实证）
       # ⚠️ 此步骤曾因同步覆盖被静默丢失，导致新包在真机原样崩溃——勿删！
-      - name: 收集运行库闭包 + 内置 gstreamer 插件
+      - name: 收集运行库闭包 + 内置 gstreamer 插件 + fcitx 输入法插件
         run: |
           docker run --rm --platform linux/arm64 \
             -v "$PWD":/work -w /work \
@@ -233,6 +235,10 @@ jobs:
               set -e
               mkdir -p dist_arm/PhotoManager/_internal/gstreamer-1.0
               cp /usr/lib/*/gstreamer-1.0/*.so dist_arm/PhotoManager/_internal/gstreamer-1.0/ || true
+              IME_DEST=dist_arm/PhotoManager/_internal/PySide6/Qt/plugins/platforminputcontexts
+              mkdir -p "$IME_DEST"
+              cp tools/arm/fcitx5-plugin/libfcitx5platforminputcontextplugin.so "$IME_DEST/"
+              test -f "$IME_DEST/libfcitx5platforminputcontextplugin.so" || { echo "fcitx 插件未入包"; exit 1; }
               python tools/arm/bundle_runtime_libs.py dist_arm/PhotoManager/_internal
               test -f dist_arm/PhotoManager/_internal/libnsl.so.2 || { echo "libnsl.so.2 未打包，闭包收集失败"; exit 1; }
               ls dist_arm/PhotoManager/_internal | grep -E "libnsl|libgst" | head -8

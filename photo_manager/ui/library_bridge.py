@@ -14,7 +14,7 @@ import threading
 from concurrent.futures.process import BrokenProcessPool
 from pathlib import Path
 
-from PySide6.QtCore import QObject, Signal, Slot
+from PySide6.QtCore import QObject, QTimer, Signal, Slot
 
 from photo_manager import models_dir
 from photo_manager.core.db import Database
@@ -128,14 +128,27 @@ class LibraryBridge(QObject):
             _QS("PhotoManager", "PhotoManager").value("ui/startMaximized", True, type=bool))
         # 0.5.49：自动语义索引挂起标志（分析链占用 _busy 时暂存，链尾接续）
         self._clip_pending = False
-        # 0.5.67：人脸聚类相似度阈值（用户可调，0.40~0.70，默认 0.50）。
+        # 0.5.67：人脸聚类相似度阈值（用户可调，0.40~0.70）。
+        # 0.6.9：默认 0.50 → 0.60（用户实测 0.5 偏松易误并）。
         # 进程内单一真值 + QSettings 持久化（同上，避免跨实例缓存不一致）。
         try:
             self._face_threshold = min(0.70, max(0.40, float(
                 _QS("PhotoManager", "PhotoManager")
-                .value("faces/clusterThreshold", 0.5, type=float))))
+                .value("faces/clusterThreshold", 0.6, type=float))))
         except (TypeError, ValueError):
-            self._face_threshold = 0.5
+            self._face_threshold = 0.6
+        # 0.6.9：分析并行度（"auto"=自动留 2 核 / "full"=全速占满核 /
+        # "custom"=自定义进程数），见 analysisParallelMode 槽。
+        self._parallel_mode = str(_QS("PhotoManager", "PhotoManager")
+                                  .value("analysis/parallelMode", "auto"))
+        if self._parallel_mode not in ("auto", "full", "custom"):
+            self._parallel_mode = "auto"
+        try:
+            self._parallel_custom = int(_QS("PhotoManager", "PhotoManager")
+                                        .value("analysis/parallelCustom", 4,
+                                               type=int))
+        except (TypeError, ValueError):
+            self._parallel_custom = 4
         self.search = PhotoSearch(self.db)
         self._busy = 0
         self._busy_lock = threading.Lock()
@@ -344,10 +357,12 @@ class LibraryBridge(QObject):
             kids.setdefault(node, []).append(p)
         out = []
         for node, leaves in kids.items():
+            # 0.6.10：计数拆 = + GLOB 前缀两段（均可走 idx_photos_folder
+            # 定位；原 OR+LIKE 是整索引扫描，节点数 × 全扫，UI 线程卡顿）
             cnt = self.db.conn.execute(
-                "SELECT COUNT(*) FROM photos WHERE folder_path = ? OR"
-                " folder_path LIKE ? ESCAPE '\\'",
-                (node, node + "/%"),
+                "SELECT (SELECT COUNT(*) FROM photos WHERE folder_path = ?)"
+                " + (SELECT COUNT(*) FROM photos WHERE folder_path GLOB ?)",
+                (node, self._glob_escape(node) + "/*"),
             ).fetchone()[0]
             out.append({"name": node.rsplit("/", 1)[-1], "path": node,
                         "photoCount": cnt, "hasChildren": len(leaves) > 1,
@@ -355,18 +370,36 @@ class LibraryBridge(QObject):
         out.sort(key=lambda d: (not d["isRoot"], d["name"].lower()))
         return out
 
+    @staticmethod
+    def _glob_escape(s: str) -> str:
+        """GLOB 通配符转义（GLOB 无 ESCAPE 子句，用括号字面量表达）。"""
+        return (s.replace("[", "[[]").replace("*", "[*]")
+                 .replace("?", "[?]"))
+
+    @staticmethod
+    def _folder_cond(node: str) -> tuple[str, list]:
+        """folder_path 的"本目录或子目录"条件（0.6.10 索引友好版）。
+
+        原写法 `folder_path = ? OR folder_path LIKE ?` 因 OR + 大小写不敏感
+        LIKE 无法走索引定位（EXPLAIN = 整索引扫描），弱机文件夹树每次
+        展开/翻页都全扫，UI 线程直接被拖死。GLOB 前缀大小写敏感、可走
+        idx_photos_folder 范围定位（EXPLAIN = SEARCH）；目录树节点本就取自
+        库里存储的 folder_path 值，与子级的大小写必然一致，GLOB 更精确。"""
+        return ("(folder_path = ? OR folder_path GLOB ?)",
+                [node, LibraryBridge._glob_escape(node) + "/*"])
+
     @Slot(str, int, int, result="QVariant")
     def folderPhotos(self, folder: str, offset: int = 0, limit: int = 500) -> list[dict]:
         """某文件夹及其所有子级下的照片。"""
-        where = "(folder_path = ? OR folder_path LIKE ? ESCAPE '\\')"
-        return self._pack(self._photo_rows(where, (folder, folder + "/%"), limit, offset))
+        where, params = self._folder_cond(folder)
+        return self._pack(self._photo_rows(where, params, limit, offset))
 
     @Slot(str, result=int)
     def folderCount(self, folder: str) -> int:
+        cond, params = self._folder_cond(folder)
         return self.db.conn.execute(
             "SELECT COUNT(*) FROM photos WHERE status != 'missing' AND archived = 0 AND"
-            " (folder_path = ? OR folder_path LIKE ? ESCAPE '\\')",
-            (folder, folder + "/%"),
+            f" {cond}", params,
         ).fetchone()[0]
 
     def _person_display_map(self) -> dict[int, str]:
@@ -398,20 +431,24 @@ class LibraryBridge(QObject):
         """
         conn = self.db.conn
         names = self._person_display_map()
+        # 0.6.10：原实现每人 2 次聚合查询（人数×2 次全表扫描，faces 无
+        # person_id 索引时更糟），弱机后台任务期间直接把 UI 线程饿死
+        # （麒麟实测点人脸假死）。改为 2 条 GROUP BY 一次取全 +
+        # idx_faces_person 索引（db.py 同步新增）。
+        counts = {r[0]: r[1] for r in conn.execute(
+            "SELECT person_id, COUNT(DISTINCT photo_id) FROM faces"
+            " WHERE hidden=0 GROUP BY person_id")}
+        blurs = {r[0]: r[1] for r in conn.execute(
+            "SELECT person_id, AVG(blur) FROM faces"
+            " WHERE hidden=0 AND blur IS NOT NULL AND blur >= 0"
+            " GROUP BY person_id")}
         out = []
         for pid in sorted(names):
-            cnt = conn.execute(
-                "SELECT COUNT(DISTINCT photo_id) FROM faces"
-                " WHERE person_id=? AND hidden=0", (pid,)
-            ).fetchone()[0]
-            item = {"id": pid, "name": names[pid], "photoCount": cnt}
+            item = {"id": pid, "name": names[pid],
+                    "photoCount": counts.get(pid, 0)}
             # 0.5.37：人物平均模糊指数（未评分/文件缺失的脸不参与均值）
-            brow = conn.execute(
-                "SELECT AVG(blur) FROM faces"
-                " WHERE person_id=? AND hidden=0 AND blur IS NOT NULL AND blur >= 0",
-                (pid,)
-            ).fetchone()
-            item["blurIdx"] = round(brow[0]) if brow and brow[0] is not None else -1
+            b = blurs.get(pid)
+            item["blurIdx"] = round(b) if b is not None else -1
             if pid > 0:
                 row = conn.execute(
                     "SELECT f.bbox, p.file_path, p.thumbnail_path, p.width, p.height,"
@@ -694,11 +731,11 @@ class LibraryBridge(QObject):
 
     @Slot(result=float)
     def faceClusterThreshold(self) -> float:
-        """人脸聚类相似度阈值（0.40~0.70，默认 0.50；越大越严格）。
+        """人脸聚类相似度阈值（0.40~0.70，默认 0.60；越大越严格）。
 
         0.5.67 开放给用户：设置 → 智能分析 → 人脸聚类相似度阈值。
-        改动后需重新执行「人脸聚类」才生效。"""
-        return float(getattr(self, "_face_threshold", 0.5))
+        0.6.9：默认 0.50 → 0.60。改动后需重新执行「人脸聚类」才生效。"""
+        return float(getattr(self, "_face_threshold", 0.6))
 
     @Slot(float)
     def setFaceClusterThreshold(self, v: float) -> None:
@@ -708,6 +745,49 @@ class LibraryBridge(QObject):
 
         QSettings("PhotoManager", "PhotoManager").setValue(
             "faces/clusterThreshold", v)
+
+    # ---------- 0.6.9 分析并行度（设置 → 智能分析） ----------
+
+    @Slot(result=str)
+    def analysisParallelMode(self) -> str:
+        """分析并行度模式："auto"（默认，留 2 核）/"full"（占满核）/"custom"。"""
+        return getattr(self, "_parallel_mode", "auto")
+
+    @Slot(str)
+    def setAnalysisParallelMode(self, mode: str) -> None:
+        mode = str(mode)
+        if mode not in ("auto", "full", "custom"):
+            mode = "auto"
+        self._parallel_mode = mode
+        from PySide6.QtCore import QSettings
+
+        QSettings("PhotoManager", "PhotoManager").setValue(
+            "analysis/parallelMode", mode)
+
+    @Slot(result=int)
+    def analysisParallelCustom(self) -> int:
+        """自定义并行进程数（仅 mode=="custom" 时生效）。"""
+        return int(getattr(self, "_parallel_custom", 4))
+
+    @Slot(int)
+    def setAnalysisParallelCustom(self, n: int) -> None:
+        self._parallel_custom = max(1, min(int(n), 16))
+        from PySide6.QtCore import QSettings
+
+        QSettings("PhotoManager", "PhotoManager").setValue(
+            "analysis/parallelCustom", self._parallel_custom)
+
+    def _analysis_workers(self) -> int:
+        """按设置换算分析进程数；auto 返回 0（管线内部走默认钳制逻辑）。"""
+        from photo_manager.core.system import analysis_workers
+
+        mode = getattr(self, "_parallel_mode", "auto")
+        if mode == "custom":
+            return analysis_workers("custom",
+                                    int(getattr(self, "_parallel_custom", 4)))
+        if mode == "full":
+            return analysis_workers("full")
+        return 0
 
     @Slot("QVariant", int, str, result=int)
     def moveFacesToPerson(self, face_ids, person_id: int, new_name: str = "") -> int:
@@ -1108,9 +1188,16 @@ class LibraryBridge(QObject):
             try:
                 stats = IngestPipeline(self.db, Path(self.db.path).parent).ingest(
                     folder, progress_cb=prog)
-                self.db.conn.execute(
-                    "DELETE FROM move_out_records WHERE dest_dir=?", (folder,))
-                self.db.conn.commit()
+                # 0.6.10：后台 worker 独立连接（不与 UI 共享）
+                import sqlite3 as _sq
+
+                wconn = _sq.connect(self.db.path, timeout=10)
+                try:
+                    wconn.execute(
+                        "DELETE FROM move_out_records WHERE dest_dir=?", (folder,))
+                    wconn.commit()
+                finally:
+                    wconn.close()
                 self._finish(
                     _tr("已重新导入 {p1} 张（失败 {p2}）").format(
                         p1=stats.get('indexed', 0), p2=stats.get('failed', 0)))
@@ -1356,19 +1443,33 @@ class LibraryBridge(QObject):
         return raw
 
     def _resolveDir(self, p: str | None) -> str | None:
-        """把路径解析为可比较的绝对目录（小写、正斜杠、去尾斜杠）。"""
+        """把路径解析为可比较的绝对目录（小写、正斜杠、去尾斜杠）。
+
+        0.6.10：POSIX 根路径 "/" 特殊保留——原 rstrip("/") 会把 "/" 剥成
+        空串，_has_photos("") 恒 False，Linux 上文件夹树"仅已添加"模式
+        整棵为空（Windows 根是盘符 "D:" 不受影响，故仅麒麟实测暴露）。"""
         if not p:
             return None
-        d = os.path.abspath(p).replace("\\", "/").rstrip("/")
+        d = os.path.abspath(p).replace("\\", "/")
+        if len(d) > 1 and d.endswith("/"):
+            d = d.rstrip("/")
         return d.lower()
+
+    @staticmethod
+    def _dir_prefix(ad: str | None) -> str:
+        """目录前缀：POSIX 根 "/" 的前缀是 ""（而非 "//"，见 _resolveDir）。"""
+        if not ad:
+            return ""
+        return "" if ad == "/" else ad + "/"
 
     def _has_photos(self, abs_dir: str | None) -> bool:
         """给定绝对目录（来自文件系统），判断其内（含子树）是否有已索引照片。"""
         if not abs_dir:
             return False
         ad = abs_dir
+        prefix = self._dir_prefix(ad)
         for k in self._indexedDirs():
-            if k == ad or k.startswith(ad + "/"):
+            if k == ad or k.startswith(prefix):
                 return True
         return False
 
@@ -1430,7 +1531,9 @@ class LibraryBridge(QObject):
             added = self._has_photos(ad)
             cnt = self._dirCountAbs(ad) if added else 0
             state = self._treeState(ad)
-            has_added_sub = any(fk != ad and fk.startswith(ad + "/") for fk in indexed)
+            has_added_sub = any(
+                fk != ad and fk.startswith(self._dir_prefix(ad))
+                for fk in indexed)
             out.append({
                 "name": k["name"], "path": k["path"], "isDir": True,
                 "added": added, "photoCount": cnt,
@@ -1444,7 +1547,9 @@ class LibraryBridge(QObject):
         if not abs_dir:
             return 0
         idx = self._indexedDirs()
-        stored = {fp for k, fp in idx.items() if k == abs_dir or k.startswith(abs_dir + "/")}
+        prefix = self._dir_prefix(abs_dir)
+        stored = {fp for k, fp in idx.items()
+                  if k == abs_dir or k.startswith(prefix)}
         if not stored:
             return 0
         q = ",".join("?" for _ in stored)
@@ -1465,8 +1570,9 @@ class LibraryBridge(QObject):
         if not ad:
             return []
         idx = self._indexedDirs()
+        prefix = self._dir_prefix(ad)
         stored = sorted(
-            {fp for k, fp in idx.items() if k == ad or k.startswith(ad + "/")}
+            {fp for k, fp in idx.items() if k == ad or k.startswith(prefix)}
         )
         if not stored:
             return []
@@ -1658,10 +1764,15 @@ class LibraryBridge(QObject):
     def _export_worker(self, ids, dest_dir: str) -> None:
         dest = Path(dest_dir)
         dest.mkdir(parents=True, exist_ok=True)
+        # 0.6.10：后台 worker 改独立连接，不再与 UI 共享（pysqlite 语句缓存
+        # 跨线程竞态隐患；主键点查本身量小，属稳妥性修正）
+        import sqlite3
+
+        conn = sqlite3.connect(self.db.path, timeout=10)
         n = 0
         try:
             for pid in ids:
-                r = self.db.conn.execute(
+                r = conn.execute(
                     "SELECT file_path, file_name FROM photos WHERE id=?", (pid,)
                 ).fetchone()
                 if not r:
@@ -1674,23 +1785,27 @@ class LibraryBridge(QObject):
                     shutil.copy2(src, target)
                     n += 1
                     self._record_export(pid, target.name, dest,
-                                        "original", "original")
+                                        "original", "original", conn)
                 except OSError as e:
                     log.warning("导出失败 %s: %s", src, e)
         finally:
+            conn.close()
             self._release_busy()
         self._finish(_tr("已导出 {p1} 张到 {p2}").format(p1=n, p2=dest))
 
     def _record_export(self, photo_id: int, file_name: str, dest_dir: Path,
-                       fmt: str, res: str) -> None:
-        """写入导出历史（0.5.39「已导出」页数据源；记录失败不影响导出）。"""
+                       fmt: str, res: str, conn=None) -> None:
+        """写入导出历史（0.5.39「已导出」页数据源；记录失败不影响导出）。
+
+        0.6.10：后台 worker 可传入自己的独立连接（避免与 UI 共享连接）。"""
         try:
-            self.db.conn.execute(
+            c = conn or self.db.conn
+            c.execute(
                 "INSERT INTO export_records(photo_id, file_name, dest_dir, fmt, res)"
                 " VALUES (?,?,?,?,?)",
                 (photo_id, file_name, str(dest_dir), fmt, res),
             )
-            self.db.conn.commit()
+            c.commit()
         except Exception:  # noqa: BLE001
             log.exception("导出历史记录失败")
 
@@ -1876,12 +1991,16 @@ class LibraryBridge(QObject):
 
     def _move_out_worker(self, ids, dest_dir: str) -> None:
         dest = Path(dest_dir)
-        conn = self.db.conn
+        # 0.6.10：后台 worker 改独立连接（与 _export_worker 同理由）
+        import sqlite3
+
+        conn = sqlite3.connect(self.db.path, timeout=10)
         try:
             dest.mkdir(parents=True, exist_ok=True)
         except OSError as e:
             self._finish(_tr("移出失败：目标文件夹不可用（{p1}）").format(p1=e))
             self._release_busy()
+            conn.close()
             return
 
         try:
@@ -1890,6 +2009,8 @@ class LibraryBridge(QObject):
             log.exception("移出照片失败")
             self._finish(_tr("移出失败：{p1}").format(p1=sys.exc_info()[1]))
             self._release_busy()
+        finally:
+            conn.close()
 
     def _move_out_worker_inner(self, ids, dest: Path, conn) -> None:
 
@@ -2338,8 +2459,28 @@ class LibraryBridge(QObject):
             return False
         with self._busy_lock:
             if self._busy > 0:
-                self._finish("扫描已取消：有任务正在运行，请稍候")
-                return False
+                # 0.6.10：导入排队——有任务在跑时新导入不再被拒绝丢弃
+                # （旧文案"扫描已取消"还会误导用户以为自己的操作出了问题），
+                # 而是进入 FIFO 队列，当前任务结束后 _release_busy 自动接续。
+                # 相同文件夹集合的重复排队合并为一条。
+                queue = getattr(self, "_pending_ingests", None)
+                if queue is None:
+                    queue = self._pending_ingests = []
+                entry = (tuple(sorted(set(folders))), bool(recursive))
+                for i, (qf, qr) in enumerate(queue):
+                    if qf == entry[0]:
+                        queue[i] = (qf, qr or recursive)
+                        break
+                else:
+                    if len(queue) >= 5:
+                        self._finish(_tr("导入已取消：排队上限 5 个，"
+                                         "请等当前任务完成后再试"))
+                        return False
+                    queue.append(entry)
+                n = len(queue)
+                self._finish(_tr("导入已排队（第 {p1} 个）：当前任务结束后自动开始")
+                             .format(p1=n))
+                return True
             self._busy = 1
         if len(folders) == 1:
             self.message.emit(_tr("正在扫描照片，请稍候…"))
@@ -2348,6 +2489,14 @@ class LibraryBridge(QObject):
         threading.Thread(target=self._ingest_many_worker,
                          args=(folders, recursive), daemon=True).start()
         return True
+
+    def _drain_ingest_queue(self) -> None:
+        """0.6.10：busy 释放后接续排队的导入（FIFO，复用 _clip_pending 模式）。"""
+        queue = getattr(self, "_pending_ingests", None)
+        if not queue:
+            return
+        folders, recursive = queue.pop(0)
+        self._start_ingest(list(folders), recursive)
 
     @Slot(str)
     def ingest(self, folder: str) -> None:
@@ -3295,6 +3444,18 @@ class LibraryBridge(QObject):
         self.chainProgress.emit(1, 1, json.dumps([title], ensure_ascii=False))
         self.chainProgress.emit(1, 1, json.dumps([title], ensure_ascii=False))
 
+        # 0.6.8：3 秒心跳——弱机批量分析时计数可能几分钟不动（如语义向量
+        # 按批编码），心跳持续刷新"已运行/预计剩余"，避免被误认为死机
+        # （麒麟真机实测反馈）。fn 由 _run_with_progress 包裹时携带 state。
+        state = getattr(fn, "progress_state", None)
+        self._hb_state = state
+        if not hasattr(self, "_hb_timer"):
+            self._hb_timer = QTimer(self)
+            self._hb_timer.setInterval(3000)
+            self._hb_timer.timeout.connect(self._heartbeat_tick)
+        if state is not None:
+            self._hb_timer.start()
+
         def worker():
             try:
                 stats = fn(*args)
@@ -3308,6 +3469,42 @@ class LibraryBridge(QObject):
 
         threading.Thread(target=worker, daemon=True).start()
         return True
+
+    def _heartbeat_tick(self) -> None:
+        """0.6.8：3 秒心跳——计数不动也持续刷新（已耗时/预计剩余）。"""
+        state = getattr(self, "_hb_state", None)
+        if not state:
+            self._hb_timer.stop()
+            return
+        import time as _time
+
+        done = state["done"]
+        tick = state.get("tick")
+        if callable(tick):
+            try:
+                done = max(done, int(tick()))
+            except Exception:
+                pass
+        if state["total"]:
+            done = min(done, state["total"])
+        elapsed = int(_time.monotonic() - state["t0"])
+        label = self._progress_label(state)
+        extra = _tr("已运行 {p1}").format(p1=f"{elapsed // 60:02d}:{elapsed % 60:02d}")
+        self.taskProgress.emit(done, state["total"],
+                               (label + " · " + extra) if label else extra)
+
+    def _progress_label(self, state) -> str:
+        """阶段标签 + 预计剩余时间（按最近 90 秒滑动速率估算）。"""
+        parts = [state["stage"]]
+        samples = state["samples"]
+        if len(samples) >= 2 and state["total"]:
+            (ta, da), (tb, db) = samples[0], samples[-1]
+            rate = (db - da) / max(tb - ta, 0.001)
+            if rate > 0.001 and state["total"] > db:
+                rem = int((state["total"] - db) / rate)
+                parts.append(_tr("预计剩余 {p1}").format(
+                    p1=f"{rem // 60:02d}:{rem % 60:02d}"))
+        return " · ".join(p for p in parts if p)
 
     def _summarize(self, kind: str, stats: dict) -> None:
         if kind == "faces":
@@ -3383,6 +3580,7 @@ class LibraryBridge(QObject):
         def task(prog):
             stats = FacePipeline(self.db, models_dir()).run(
                 limit=limit or None,
+                workers=self._analysis_workers(),
                 progress_cb=lambda done, total, path: prog(done, total)
             )
             # 检测后自动聚类（与自动分析链行为一致）
@@ -3401,6 +3599,7 @@ class LibraryBridge(QObject):
         def task(prog):
             return OCRPipeline(self.db).run(
                 limit=limit or None,
+                workers=self._analysis_workers(),
                 progress_cb=lambda done, total, path: prog(done, total)
             )
 
@@ -3414,6 +3613,7 @@ class LibraryBridge(QObject):
         def task(prog):
             return DuplicateScanner(self.db).compute_hashes(
                 limit=limit or None,
+                workers=self._analysis_workers(),
                 progress_cb=lambda done, total: prog(done, total)
             )
 
@@ -3655,7 +3855,11 @@ class LibraryBridge(QObject):
         """
         with self._busy_lock:
             self._busy = 0
+        hb = getattr(self, "_hb_timer", None)
+        if hb is not None:
+            hb.stop()
         self._drain_clip_pending()
+        self._drain_ingest_queue()
         self.busyChanged.emit()
 
     def _drain_clip_pending(self) -> None:
@@ -3734,6 +3938,22 @@ class LibraryBridge(QObject):
             import sqlite3
 
             conn = sqlite3.connect(self.db.path, timeout=30)
+            # 0.6.8：批内按张进度文件——子进程每编码一张覆写 {"done": n}，
+            # 心跳定时器读取，进度数字按张刷新而非按批（弱机一批要等数分钟，
+            # 麒麟实测被误认为卡死）
+            _prog_tmpdir = _tempfile.mkdtemp(prefix="pmclip_prog_")
+            prog_path = os.path.join(_prog_tmpdir, "prog.json")
+            prog_state = getattr(prog, "progress_state", None)
+            _base = {"i": 0}
+
+            def _read_prog() -> int:
+                try:
+                    with open(prog_path, encoding="utf-8") as f:
+                        return int(_json.load(f).get("done", 0))
+                except Exception:
+                    return 0
+            if prog_state is not None:
+                prog_state["tick"] = lambda: _base["i"] + _read_prog()
             try:
                 rows = conn.execute(
                     "SELECT p.id, p.file_path, p.thumbnail_path, p.thumb_width,"
@@ -3774,6 +3994,8 @@ class LibraryBridge(QObject):
                         else:
                             cmd = [sys.executable, "-m", "photo_manager.main",
                                    "--clip-worker", self.db.path, jf, of, mode]
+                        if mode == "encode":
+                            cmd.append(prog_path)  # 0.6.8 批内按张进度文件
                         subprocess.run(
                             cmd, timeout=900, check=False,
                             creationflags=(0x08000000 if os.name == "nt" else 0))
@@ -3795,6 +4017,10 @@ class LibraryBridge(QObject):
                 for i in range(0, len(jobs), BATCH):
                     batch = jobs[i:i + BATCH]
                     try:
+                        if prog_state is not None:
+                            _base["i"] = i
+                            if os.path.exists(prog_path):
+                                os.remove(prog_path)
                         st = _run_worker("encode", batch)
                         ok += st.get("ok", 0)
                         fail += st.get("fail", 0) + (
@@ -3831,6 +4057,7 @@ class LibraryBridge(QObject):
                 }
             finally:
                 conn.close()
+                shutil.rmtree(_prog_tmpdir, ignore_errors=True)
 
         self._spawn("clip", "语义向量", self._run_with_progress(task, "语义向量"))
         return ""
@@ -3840,11 +4067,34 @@ class LibraryBridge(QObject):
 
         0.6.6：stage 为任务名（与 _spawn 的 title 一致），随进度信号上报——
         此前标签恒为空串，底部进度弹窗只显示数字不显示正在跑什么任务
-        （用户反馈：语义向量任务"没有显示正在后台执行什么任务"）。"""
+        （用户反馈：语义向量任务"没有显示正在后台执行什么任务"）。
+        0.6.8：state 挂到返回的 run.progress_state 供 _spawn 心跳定时器
+        读取——弱机上计数长期不动时心跳仍每 3 秒刷新（已耗时/预计剩余），
+        避免被误认为死机；clip 任务通过 state["tick"] 提供批内按张计数。"""
+        import time as _time
+
+        state = {"stage": stage, "done": 0, "total": 0,
+                 "t0": _time.monotonic(), "samples": [], "tick": None}
+
+        def prog(done, total):
+            state["done"] = done or 0
+            state["total"] = total or 0
+            now = _time.monotonic()
+            state["samples"] = [(t, d) for t, d in state["samples"]
+                                if now - t <= 90][-16:]
+            state["samples"].append((now, state["done"]))
+            self.taskProgress.emit(state["done"], state["total"],
+                                   self._progress_label(state))
+
         def run(*_a):
-            def prog(done, total):
-                self.taskProgress.emit(done or 0, total or 0, stage)
+            # 0.6.11 修复：必须把 prog（回调）而非 run（包装器自己）传给
+            # task——0.6.8 起误传 run 导致 task 首次调 prog 时重新执行
+            # 整个任务，无限自递归（"语义向量失败：递归超限"，所有
+            # _spawn 任务同病）。
             return task(prog)
+
+        prog.progress_state = state   # 供 clip 任务挂 tick
+        run.progress_state = state    # 供 _spawn 心跳定时器读取
         return run
 
     # ---------- 自动分析链：扫描入库后按 轻量→人脸→OCR 顺序自动执行 ----------
@@ -4000,6 +4250,7 @@ class LibraryBridge(QObject):
                 from photo_manager.core.duplicates import DuplicateScanner
 
                 stats = DuplicateScanner(self.db).compute_hashes(
+                    workers=self._analysis_workers(),
                     progress_cb=lambda d, t: self.taskProgress.emit(d, t, label),
                     cancel=cancel,
                 )
@@ -4010,6 +4261,7 @@ class LibraryBridge(QObject):
                 from photo_manager.core.faces import FacePipeline
 
                 stats = FacePipeline(self.db, models_dir()).run(
+                    workers=self._analysis_workers(),
                     progress_cb=lambda d, t, p: self.taskProgress.emit(
                         d, t, f"{label}|{p}" if p else label),
                     cancel=cancel,
@@ -4029,6 +4281,7 @@ class LibraryBridge(QObject):
                 from photo_manager.core.ocr import OCRPipeline
 
                 stats = OCRPipeline(self.db).run(
+                    workers=self._analysis_workers(),
                     progress_cb=lambda d, t, p: self.taskProgress.emit(
                         d, t, f"{label}|{p}" if p else label),
                     cancel=cancel,

@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Callable
 
 from photo_manager.core.db import Database
-from photo_manager.core.system import auto_workers
+from photo_manager.core.system import analysis_workers
 
 log = logging.getLogger(__name__)
 
@@ -64,7 +64,12 @@ class OCRPipeline:
     def run(self, limit: int | None = None, workers: int = 0,
             progress_cb: Callable[[int, int, str], None] | None = None,
             cancel: Callable[[], bool] | None = None) -> dict:
-        rows = self.db.conn.execute(
+        # 0.6.8：任务期读写全部走独立连接，不再碰 UI 共享连接（消除
+        # 批量分析时 UI 查询在共享连接上排队导致的界面无响应）
+        import sqlite3
+
+        conn = sqlite3.connect(self.db.path, timeout=10)
+        rows = conn.execute(
             "SELECT id, file_path FROM photos WHERE ocr_done=0 AND status='indexed' AND media_type='photo'"
             " ORDER BY id" + (" LIMIT ?" if limit else ""),
             (limit,) if limit else (),
@@ -73,14 +78,12 @@ class OCRPipeline:
         stats = {"scanned": 0, "with_text": 0, "texts": 0, "failed": 0}
         t0 = time.perf_counter()
         if not total:
+            conn.close()
             stats["sec"] = 0.0
             return stats
-        # 用独立连接写库：Linux 下 fork 的 worker 会继承并关闭共享连接，导致父连接失效
-        import sqlite3
-
-        conn = sqlite3.connect(self.db.path, timeout=10)
+        # Linux 下 fork 的 worker 会继承并关闭共享连接，导致父连接失效
         try:
-            nproc = workers or auto_workers()
+            nproc = workers or analysis_workers()
             try:
                 self._run_pool(conn, rows, total, stats, nproc, cancel, progress_cb)
             except BrokenProcessPool:

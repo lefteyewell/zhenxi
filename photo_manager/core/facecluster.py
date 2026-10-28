@@ -27,9 +27,11 @@ from photo_manager.core.db import Database
 
 log = logging.getLogger(__name__)
 
-# 真实照片实测：同人余弦相似度 0.5~0.9、跨人 0.05~0.15，取 0.5 可分且不漏。
+# 真实照片实测：同人余弦相似度 0.5~0.9、跨人 0.05~0.15。
 # 0.637 原值对应 SFace 论文余弦距离 0.363，对真实照片过于严格，导致同一人分成多人。
-DEFAULT_SIM_THRESHOLD = 0.5
+# 0.6.9：默认 0.5 → 0.6（用户实测 0.5 偏松、不同人易被误并；仍可在
+# 设置 → 智能分析 → 相似度阈值 0.40~0.70 调整，改动后需重跑人脸聚类）。
+DEFAULT_SIM_THRESHOLD = 0.6
 MAX_GLOBAL = 30000  # 超过后按事件域聚类（内存/耗时保护）
 
 
@@ -86,11 +88,17 @@ class FaceClusterer:
 
     def run(self, progress_cb: Callable[[int, int], None] | None = None) -> dict:
         t0 = time.perf_counter()
-        faces = self.db.conn.execute(
+        # 0.6.8：任务期读写全部走独立连接，不再碰 UI 共享连接（消除
+        # 批量分析时 UI 查询在共享连接上排队导致的界面无响应）
+        import sqlite3
+
+        conn = sqlite3.connect(self.db.path, timeout=10)
+        faces = conn.execute(
             "SELECT f.id, f.descriptor, ep.event_id, f.photo_id FROM faces f"
             " LEFT JOIN event_photos ep ON ep.photo_id = f.photo_id"
         ).fetchall()
         if not faces:
+            conn.close()
             return {"faces": 0, "persons": 0, "scoped": False, "sec": 0.0}
 
         n = len(faces)
@@ -103,6 +111,7 @@ class FaceClusterer:
         if bad:
             log.warning("人脸特征异常，跳过聚类：%d 条（示例 id=%s）",
                         len(bad), bad[:5])
+            conn.close()
             return {"faces": 0, "persons": 0, "scoped": False,
                     "sec": round(time.perf_counter() - t0, 3),
                     "error": f"人脸特征缺失或长度异常（{len(bad)} 条），跳过聚类"}
@@ -134,7 +143,6 @@ class FaceClusterer:
 
         rep_to_person: dict[int, int] = {}
         person_rows = []
-        conn = self.db.conn
         # 聚类会清空 persons 重建。若不保留，用户已命名的人物（如"王老师"）会被
         # 全部抹掉 —— 先记下每张脸当前的人物名，聚类后按簇内多数票继承回来。
         old_name: dict[int, str] = {}
@@ -182,6 +190,7 @@ class FaceClusterer:
         for rep, pid in person_map.items():
             conn.execute("UPDATE persons SET face_count=? WHERE id=?", (rep_counts[rep], pid))
         conn.commit()
+        conn.close()
         return {
             "faces": n,
             "persons": len(person_map),

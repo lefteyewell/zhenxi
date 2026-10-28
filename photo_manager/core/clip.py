@@ -249,17 +249,30 @@ def encode_indexable(svc: "ClipService", db_path: str, file_path: str,
 def cli_worker_main(argv) -> int:
     """--clip-worker 子进程入口（0.5.58）。
 
-    argv: [exe, --clip-worker, db_path, jobs_json, out_json, mode]
+    argv: [exe, --clip-worker, db_path, jobs_json, out_json, mode, prog_json?]
     mode: "encode"（jobs=编码批）| "autotag"（jobs=tags 列表）
     编码/打标在无 Qt 的独立进程中完成——Qt 6.11 环境下后台线程首次加载/运行
     native 重库（rawpy/onnxruntime/libraw）会访问违例（0.5.57 用户实测）。
     结果 JSON 写 out_json：{"ok": int, "fail": int, "tags": int}。
+    0.6.8：argv[6] 为可选进度文件路径——每编码完一张立即写
+    {"done": n}（原子覆盖），主进程心跳定时器读取，弱机上进度按张刷新
+    而非按批（此前一批 16 张要等数分钟数字才动，被误认为卡死）。
     """
     import json
     import sqlite3
 
     db_path, jobs_json, out_json, mode = argv[2], argv[3], argv[4], argv[5]
+    prog_json = argv[6] if len(argv) > 6 else ""
     result = {"ok": 0, "fail": 0, "tags": 0, "vectors": []}
+
+    def _tick(done: int) -> None:
+        if not prog_json:
+            return
+        try:
+            with open(prog_json, "w", encoding="utf-8") as f:
+                json.dump({"done": int(done)}, f)
+        except OSError:
+            pass
     try:
         with open(jobs_json, encoding="utf-8") as f:
             payload = json.load(f)
@@ -281,15 +294,17 @@ def cli_worker_main(argv) -> int:
             import base64
 
             svc = get_service()
-            for pid, fp, tp, tw, th, frames in payload:
+            for _pi, (pid, fp, tp, tw, th, frames) in enumerate(payload, 1):
                 vec = encode_indexable(svc, db_path, fp, tp, tw, th, frames)
                 if vec is None:
                     result["fail"] += 1
+                    _tick(_pi)
                     continue
                 b64 = base64.b64encode(
                     vec.astype(np.float32).tobytes()).decode("ascii")
                 result["vectors"].append([pid, b64, MODEL_ID, int(vec.shape[0])])
                 result["ok"] += 1
+                _tick(_pi)
     except Exception:
         import traceback
 

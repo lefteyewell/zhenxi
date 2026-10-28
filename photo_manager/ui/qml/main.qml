@@ -1218,19 +1218,15 @@ ApplicationWindow {
             /* 左|中 分隔条：拖动调整左栏（导航/目录树）宽度 */
             Rectangle {
                 Layout.fillHeight: true
-                width: 5
-                color: lSplit.hovered || lSplit.pressed ? Theme.primary : "transparent"
-                Rectangle {
-                    anchors.fill: parent
-                    anchors.leftMargin: 2
-                    anchors.rightMargin: 2
-                    color: lSplit.hovered || lSplit.pressed ? Theme.primary : Theme.divider
-                }
+                width: 6
+                color: lSplit.hovered || lSplit.pressed ? Theme.primary : Theme.divider
+                /* 0.6.10：整条可视（原仅 1px 细线，弱机高分屏几乎不可见，
+                   用户找不到把手以为不能调整）；热区外扩 4px 便于抓取 */
                 MouseArea {
                     id: lSplit
                     objectName: "leftSplitter"
                     anchors.fill: parent
-                    anchors.margins: -2
+                    anchors.margins: -4
                     hoverEnabled: true
                     cursorShape: Qt.SplitHCursor
                     onPositionChanged: (mouse) => {
@@ -1582,19 +1578,14 @@ ApplicationWindow {
             /* 中|右 分隔条：拖动调整右栏（信息面板）宽度 */
             Rectangle {
                 Layout.fillHeight: true
-                width: 5
-                color: rSplit.hovered || rSplit.pressed ? Theme.primary : "transparent"
-                Rectangle {
-                    anchors.fill: parent
-                    anchors.leftMargin: 2
-                    anchors.rightMargin: 2
-                    color: rSplit.hovered || rSplit.pressed ? Theme.primary : Theme.divider
-                }
+                width: 6
+                color: rSplit.hovered || rSplit.pressed ? Theme.primary : Theme.divider
+                /* 0.6.10：同 leftSplitter——整条可视 + 热区外扩 */
                 MouseArea {
                     id: rSplit
                     objectName: "rightSplitter"
                     anchors.fill: parent
-                    anchors.margins: -2
+                    anchors.margins: -4
                     hoverEnabled: true
                     cursorShape: Qt.SplitHCursor
                     onPositionChanged: (mouse) => {

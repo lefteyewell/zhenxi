@@ -88,6 +88,7 @@ CREATE TABLE IF NOT EXISTS faces (
 );
 CREATE INDEX IF NOT EXISTS idx_faces_photo ON faces(photo_id);
 CREATE INDEX IF NOT EXISTS idx_faces_cluster ON faces(cluster_id);
+CREATE INDEX IF NOT EXISTS idx_faces_person ON faces(person_id);
 
 CREATE TABLE IF NOT EXISTS ocr_texts (
     id         INTEGER PRIMARY KEY,
@@ -312,6 +313,9 @@ class Database:
         )
         self.conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_photos_stack_id ON photos(stack_id)"
+        )
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_faces_person ON faces(person_id)"
         )
         self.conn.execute(
             "CREATE TABLE IF NOT EXISTS analysis_state ("

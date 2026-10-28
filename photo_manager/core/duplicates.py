@@ -26,7 +26,7 @@ import time
 from concurrent.futures import ProcessPoolExecutor
 
 from photo_manager.core.db import Database
-from photo_manager.core.system import auto_workers
+from photo_manager.core.system import analysis_workers
 
 log = logging.getLogger(__name__)
 
@@ -64,7 +64,12 @@ class DuplicateScanner:
         progress_cb=None, cancel=None,
     ) -> dict:
         """为缺 hash 的照片计算 perceptual_hash（基于缩略图）。"""
-        rows = self.db.conn.execute(
+        # 0.6.8：任务期读写全部走独立连接，不再碰 UI 共享连接（消除
+        # 批量分析时 UI 查询在共享连接上排队导致的界面无响应）
+        import sqlite3
+
+        conn = sqlite3.connect(self.db.path, timeout=10)
+        rows = conn.execute(
             "SELECT id, thumbnail_path FROM photos"
             " WHERE (perceptual_hash IS NULL OR perceptual_hash='')"
             " AND thumbnail_path IS NOT NULL AND thumbnail_path != ''"
@@ -79,9 +84,10 @@ class DuplicateScanner:
         total = len(rows)
         n_ok = n_fail = 0
         if total == 0:
+            conn.close()
             return {"total": 0, "ok": 0, "fail": 0, "sec": 0.0}
         t0 = time.perf_counter()
-        nproc = workers if workers > 1 else auto_workers()
+        nproc = workers or analysis_workers()
         if nproc <= 1:
             results = [_dhash_from_path((str(i), t)) for i, t in rows]
         else:
@@ -89,10 +95,7 @@ class DuplicateScanner:
                 results = list(ex.map(
                     _dhash_from_path, [(str(i), t) for i, t in rows]
                 ))
-        # 用独立连接写库：Linux 下 fork 的 worker 会继承并关闭共享连接，导致父连接失效
-        import sqlite3
-
-        conn = sqlite3.connect(self.db.path, timeout=10)
+        # Linux 下 fork 的 worker 会继承并关闭共享连接，导致父连接失效
         try:
             for i, (pid, bits, h) in enumerate(results, 1):
                 if cancel and cancel():

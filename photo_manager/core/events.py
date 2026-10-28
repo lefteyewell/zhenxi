@@ -40,12 +40,18 @@ class EventClusterer:
 
     def run(self, progress_cb=None, cancel=None) -> dict:
         t0 = time.perf_counter()
-        rows = self.db.conn.execute(
+        # 0.6.8：任务期读写全部走独立连接，不再碰 UI 共享连接（消除
+        # 批量分析时 UI 查询在共享连接上排队导致的界面无响应）
+        import sqlite3
+
+        conn = sqlite3.connect(self.db.path, timeout=10)
+        rows = conn.execute(
             "SELECT id, taken_at, gps_lat, gps_lon, folder_path FROM photos"
             " WHERE taken_at IS NOT NULL AND taken_at != ''"
             " AND status != 'missing' ORDER BY taken_at"
         ).fetchall()
         if not rows:
+            conn.close()
             return {"events": 0, "photos": 0, "sec": 0.0}
 
         def parse(ts: str):
@@ -63,6 +69,7 @@ class EventClusterer:
             if dt is not None:
                 parsed.append((r, dt))
         if not parsed:
+            conn.close()
             return {"events": 0, "photos": 0, "sec": 0.0}
 
         events = []  # (start, end, photo_ids, lat, lon, folders)
@@ -80,7 +87,6 @@ class EventClusterer:
             prev_dt = dt
         events.append(cur)
 
-        conn = self.db.conn
         conn.execute("DELETE FROM event_photos")
         conn.execute("DELETE FROM events")
         for ev in events:
@@ -115,6 +121,7 @@ class EventClusterer:
             if progress_cb:
                 progress_cb(len(events), len(events))
         conn.commit()
+        conn.close()
         return {
             "events": len(events),
             # 用实际参与聚类的张数（原用 len(rows)，会把时间无法解析、

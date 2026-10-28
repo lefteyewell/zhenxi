@@ -67,6 +67,8 @@ Dialog {
     property bool _trayEnabled: true
     property bool _startMax: true   /* 0.5.67 启动窗口最大化 */
     property real _faceThr: 0.5   /* 0.5.67 人脸聚类相似度阈值 */
+    property string _parMode: "auto"   /* 0.6.9 分析并行度 */
+    property int _parCustom: 4
 
     function openSettings() {
         _clipAuto = LibraryBridge ? LibraryBridge.clipAutoIndexEnabled() : false
@@ -74,6 +76,8 @@ Dialog {
         _trayEnabled = LibraryBridge ? LibraryBridge.trayEnabled() : true
         _startMax = LibraryBridge ? LibraryBridge.startupMaximizedEnabled() : true
         _faceThr = LibraryBridge ? LibraryBridge.faceClusterThreshold() : 0.5
+        _parMode = LibraryBridge ? LibraryBridge.analysisParallelMode() : "auto"
+        _parCustom = LibraryBridge ? LibraryBridge.analysisParallelCustom() : 4
         darkChk.checked = (ThemeController ? ThemeController.dark : false)
         sceneTagsArea.text = LibraryBridge ? LibraryBridge.sceneTags() : ""
         copyLibChk.checked = LibraryBridge ? LibraryBridge.copyToLibraryEnabled() : false
@@ -239,6 +243,71 @@ Dialog {
                     text: I18n.tr("越大越严格：调高会把相像的人物拆开（宁分勿合，需手动合并），"
                                   + "调低合并更激进（误并风险增大）。"
                                   + "改动后需重新执行「人脸聚类」才生效（工具中心 → 人脸聚类）。")
+                    font.family: Theme.fontFamily
+                    font.pixelSize: 11
+                    color: Theme.textDim
+                    wrapMode: Text.Wrap
+                }
+                Text {
+                    text: I18n.tr("分析并行度")
+                    font.family: Theme.fontFamily
+                    font.pixelSize: 12
+                    font.weight: Font.DemiBold
+                    color: Theme.textDim
+                }
+                Row {
+                    spacing: Theme.spacingMedium
+                    Text {
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: I18n.tr("并行模式")
+                        font.family: Theme.fontFamily
+                        font.pixelSize: 12
+                        color: Theme.text
+                    }
+                    ComboBox {
+                        id: parModeBox
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: 220
+                        model: [I18n.tr("自动（默认，留 2 核给界面）"),
+                                I18n.tr("全速（占满核，界面可能卡）"),
+                                I18n.tr("自定义进程数")]
+                        currentIndex: root._parMode === "auto" ? 0
+                                     : root._parMode === "full" ? 1 : 2
+                        font.family: Theme.fontFamily
+                        onActivated: {
+                            var m = ["auto", "full", "custom"][currentIndex]
+                            root._parMode = m
+                            if (LibraryBridge) LibraryBridge.setAnalysisParallelMode(m)
+                        }
+                    }
+                    Text {
+                        anchors.verticalCenter: parent.verticalCenter
+                        visible: root._parMode === "custom"
+                        text: I18n.tr("进程数")
+                        font.family: Theme.fontFamily
+                        font.pixelSize: 12
+                        color: Theme.text
+                    }
+                    SpinBox {
+                        id: parCustomBox
+                        anchors.verticalCenter: parent.verticalCenter
+                        visible: root._parMode === "custom"
+                        from: 1
+                        to: 16
+                        value: root._parCustom
+                        font.family: Theme.fontFamily
+                        onValueModified: {
+                            root._parCustom = value
+                            if (LibraryBridge) LibraryBridge.setAnalysisParallelCustom(value)
+                        }
+                    }
+                }
+                Text {
+                    Layout.fillWidth: true
+                    text: I18n.tr("进程越多分析越快，但 CPU 与内存占用越高。"
+                                  + "「自动」为界面响应与分析速度的平衡（弱机推荐）；"
+                                  + "「全速」会占满 CPU 核，分析期间界面可能明显卡顿；"
+                                  + "改动对下一次分析任务生效。")
                     font.family: Theme.fontFamily
                     font.pixelSize: 11
                     color: Theme.textDim

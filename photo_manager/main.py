@@ -304,6 +304,33 @@ def main() -> int:
     scheduled = "--scheduled-run" in sys.argv
     db_path = os.environ.get("PM_DB", default_db_path())
 
+    # 0.6.10：GUI 运行日志落盘（此前仅 stderr，桌面启动即丢失——后台任务
+    # 的 traceback 无从排查，如麒麟实测"语义向量失败：递归超限"）。
+    # 只挂 photo_manager 层级，上限 2MB×2 份自动轮转。
+    try:
+        import logging
+        from logging.handlers import RotatingFileHandler
+        from pathlib import Path as _Path
+
+        _log_dir = _Path(db_path).parent / "logs"
+        _log_dir.mkdir(parents=True, exist_ok=True)
+        _fh = RotatingFileHandler(_log_dir / "app.log",
+                                  maxBytes=2 * 1024 * 1024, backupCount=2,
+                                  encoding="utf-8")
+        _fh.setFormatter(logging.Formatter(
+            "%(asctime)s %(levelname)s %(name)s %(funcName)s: %(message)s"))
+        _lg = logging.getLogger("photo_manager")
+        _lg.addHandler(_fh)
+        if _lg.level == 0 or _lg.level > logging.INFO:
+            _lg.setLevel(logging.INFO)
+    except OSError:
+        pass  # 日志目录不可写不阻塞启动（便携/只读目录兜底）
+
+    # 0.6.10：递归深度余量（默认 1000 对 PySide 信号链 + 任务管线偏紧，
+    # 麒麟实测 RecursionError"语义向量失败"；3 层倍增仅占约 1MB 线程栈）
+    if sys.getrecursionlimit() < 3000:
+        sys.setrecursionlimit(3000)
+
     # 0.5.58：clip 编码子进程入口（无 Qt 进程，规避 Qt 环境后台线程 native 崩溃）。
     # 须在 QApplication 创建之前处理，跑完即退。
     if "--clip-worker" in sys.argv:
@@ -313,6 +340,32 @@ def main() -> int:
     # 无头定时运行：Linux 无显示环境时强制 offscreen（须在 QApplication 前设）
     if scheduled and sys.platform.startswith("linux") and not os.environ.get("DISPLAY"):
         os.environ["QT_QPA_PLATFORM"] = "offscreen"
+
+    # 0.6.10：Linux 输入法上下文探测（须在 QApplication 前设）。
+    # PySide6 wheel 只带 ibus/compose 输入上下文插件，不带 fcitx——而麒麟
+    # V10 默认输入法框架是 fcitx：Qt 按 XMODIFIERS 找 "fcitx" 插件失败后
+    # 回退 compose，所有输入框都无法输入中文（0.6.9 麒麟实测）。此处仅
+    # 显式声明 QT_IM_MODULE；真正生效还需包内有 fcitx 插件（从系统
+    # qt6/plugins/platforminputcontexts/ 拷入）或系统已装 ibus 前端。
+    if sys.platform.startswith("linux") and not os.environ.get("QT_IM_MODULE"):
+        xim = os.environ.get("XMODIFIERS", "")
+        if "fcitx" in xim or "fcitx" in os.environ.get("GTK_IM_MODULE", ""):
+            os.environ["QT_IM_MODULE"] = "fcitx"
+        elif "ibus" in xim or "ibus" in os.environ.get("GTK_IM_MODULE", ""):
+            os.environ["QT_IM_MODULE"] = "ibus"
+        # 0.6.10：把系统 Qt6 插件目录加入搜索路径——PySide6 wheel 不带
+        # fcitx 输入上下文插件，但麒麟系统若装有 fcitx5 的 Qt6 前端
+        # （fcitx5-frontend-qt6 / libfcitx5platforminputcontextplugin.so），
+        # 借系统插件即可补齐（Qt6 插件跨 minor 版本兼容）。仅当该目录下
+        # 确有 platforminputcontexts 时才追加，避免无关目录混入。
+        import glob as _glob
+
+        for _p in _glob.glob("/usr/lib/*/qt6/plugins") + \
+                ["/usr/lib64/qt6/plugins", "/usr/lib/qt6/plugins"]:
+            if os.path.isdir(os.path.join(_p, "platforminputcontexts")):
+                _pp = os.environ.get("QT_PLUGIN_PATH", "")
+                if _p not in _pp:
+                    os.environ["QT_PLUGIN_PATH"] = f"{_p}{os.pathsep}{_pp}" if _pp else _p
 
     app = QApplication(sys.argv)
     app.setApplicationDisplayName(APP_NAME)

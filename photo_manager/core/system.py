@@ -79,6 +79,24 @@ def auto_workers() -> int:
     return 1
 
 
+def analysis_workers(mode: str = "auto", custom: int = 0) -> int:
+    """分析任务进程数（0.6.9 设置项"分析并行度"）。
+
+    auto（默认）：内存档位 + CPU 留 2 核钳制取小——保 UI 始终可操作。
+    full（全速）：不预留 UI 核（占满核），内存档位放宽
+                  （≥16GB → 8、≥8GB → 6，其余同 auto），允许用户提高利用率。
+    custom：用户指定进程数（1~16，负载后果自负）。
+    无参调用等价 auto（兼容旧调用点）。"""
+    nproc = os.cpu_count() or 4
+    if mode == "custom":
+        return max(1, min(int(custom or 1), 16))
+    if mode == "full":
+        ram = available_ram_gb()
+        cap = 8 if ram >= 16 else (6 if ram >= 8 else auto_workers())
+        return max(1, min(max(auto_workers(), cap), nproc))
+    return max(1, min(auto_workers(), max(1, nproc - 2)))
+
+
 def max_dim() -> int:
     """人脸检测前图像最长边上限（像素），可 PM_MAX_DIM 覆盖。"""
     ov = _env_int("PM_MAX_DIM", 0)
