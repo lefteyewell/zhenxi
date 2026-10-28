@@ -30,6 +30,8 @@ for pkg in ["pillow_heif", "pillow_jxl_plugin"]:
 # 内置 QML 界面资源
 datas += [("photo_manager/ui/qml", "photo_manager/ui/qml")]
 datas += [("photo_manager/__init__.py", "photo_manager")]
+# 许可证随包分发（GPLv3 要求；LGPL/组件署名见 THIRD-PARTY-NOTICES.md）
+datas += [("LICENSE", "."), ("THIRD-PARTY-NOTICES.md", ".")]
 datas += [("photo_manager/core/rapidocr_config.yaml", "photo_manager/core")]
 
 # 人脸模型（YuNet + SFace，随包分发）
