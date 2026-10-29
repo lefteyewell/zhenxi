@@ -5,17 +5,17 @@ EXIF / folders / arbitrary combinations), thumbnails and full-size viewing,
 batch export at common resolutions — **the app never deletes your original
 files**.
 
-## Latest release v0.6.11 (2026-10-28)
+## Latest release v0.6.13 (2026-10-29)
 
 > 📥 Download: [Releases page](https://github.com/lefteyewell/zhenxi/releases) ｜
 > 📋 All version changes: [CHANGELOG.md](CHANGELOG.md)
 
-- **Fixed**: a regression that aborted background tasks (semantic indexing /
-  faces / OCR / duplicates) with "maximum recursion depth exceeded"
-- **New**: Chinese input support on Kylin and other Linux desktops (bundled
-  fcitx input-method plugin, works out of the box)
-- **Improved**: the UI stays responsive during 10k+ photo batch analysis, with
-  per-item progress and ETA (since 0.6.8)
+- **New**: "Practical tips" section in the in-app help — 8 groups of advanced
+  techniques (search combinations, culling pipeline, scheduled tasks, settings tips…)
+- **New**: multi-select "delete persons" on the People page (faces return to
+  unassigned; photos are never touched)
+- **Fixed**: person "merge into" dialog search was not wired; merge pickers now
+  have search; library roots can be added by typing a path directly
 
 **English UI**: click the `中 / EN` button at the right end of the top toolbar.
 The interface language is remembered across restarts. Missing translations
