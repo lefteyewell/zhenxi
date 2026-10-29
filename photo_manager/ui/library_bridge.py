@@ -585,6 +585,32 @@ class LibraryBridge(QObject):
             conn.rollback()
             return 0
 
+    @Slot("QVariant", result=int)
+    def deletePersons(self, ids) -> int:
+        """删除选中人物（0.6.13）：人脸回归未指派（可重新聚类或手动指派），
+        人物行删除；特征向量保留在 faces 上，照片绝不受影响。返回删除数。"""
+        from PySide6.QtQml import QJSValue
+
+        if isinstance(ids, QJSValue):
+            ids = ids.toVariant()
+        pids = [int(i) for i in (ids or []) if int(i) > 0]
+        if not pids:
+            return 0
+        conn = self.db.conn
+        try:
+            conn.execute("BEGIN")
+            marks = ",".join("?" * len(pids))
+            conn.execute(
+                f"UPDATE faces SET person_id=NULL WHERE person_id IN ({marks})",
+                pids)
+            conn.execute(f"DELETE FROM persons WHERE id IN ({marks})", pids)
+            conn.commit()
+            return len(pids)
+        except Exception:
+            conn.rollback()
+            log.exception("删除人物失败")
+            return 0
+
     @Slot("QVariant", int, result=int)
     def movePhotosToPerson(self, ids, person_id: int) -> int:
         """把整张照片的所有脸移到指定人物（0=移回未命名）。"""

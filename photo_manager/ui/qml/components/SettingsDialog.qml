@@ -342,6 +342,33 @@ Dialog {
                         onClicked: root.removeRoot(rootsModel.get(rootsList.currentIndex).path)
                     }
                 }
+                /* 0.6.13：手动输入路径——系统文件夹对话框不可用/不合意时的备选 */
+                Row {
+                    spacing: Theme.spacingSmall
+                    TextField {
+                        id: rootManualInput
+                        objectName: "libraryRootInput"
+                        width: 300
+                        placeholderText: I18n.tr("或直接输入文件夹路径")
+                        font.family: Theme.fontFamily
+                        font.pixelSize: 12
+                        onAccepted: rootAddManualBtn.clicked()
+                    }
+                    PMButton {
+                        id: rootAddManualBtn
+                        objectName: "libraryRootAddManualBtn"
+                        text: I18n.tr("添加")
+                        height: 30
+                        onClicked: {
+                            var p = rootManualInput.text.trim()
+                            if (!p) return
+                            if (LibraryBridge.addLibraryRoot(p)) {
+                                rootManualInput.text = ""
+                                root.refreshRoots()
+                            }
+                        }
+                    }
+                }
                 ListView {
                     id: rootsList
                     objectName: "libraryRootsList"

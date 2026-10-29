@@ -322,16 +322,17 @@ Dialog {
                 height: 30
                 enabled: root.checkedFaceIds.length > 0
                 onClicked: {
-                    targetModel.clear()
+                    picker.masterPeople = []
                     var ppl = LibraryBridge.people()
                     for (var i = 0; i < ppl.length; ++i) {
                         if (ppl[i].id === root.personId || ppl[i].unassigned) continue
-                        targetModel.append(ppl[i])
+                        picker.masterPeople.push(ppl[i])
                     }
-                    if (targetModel.count === 0) {
+                    if (picker.masterPeople.length === 0) {
                         root.messageRequested(I18n.tr("没有可并入的其他人物"), "warning")
                         return
                     }
+                    picker.rebuildTarget()
                     picker.open()
                 }
             }
@@ -368,7 +369,7 @@ Dialog {
         }
     }
 
-    /* 目标人物选择器：过滤 + 列表 */
+    /* 目标人物选择器：搜索过滤 + 列表 */
     Popup {
         id: picker
         parent: Overlay.overlay
@@ -378,6 +379,20 @@ Dialog {
         y: Math.round((parent.height - height) / 2)
         modal: true
         padding: 8
+
+        /* 0.6.13：候选人物主列表 + 按搜索词过滤重建（原搜索框未接过滤） */
+        property var masterPeople: []
+
+        function rebuildTarget() {
+            targetModel.clear()
+            var f = targetFilter.text.trim().toLowerCase()
+            for (var i = 0; i < masterPeople.length; ++i) {
+                var p = masterPeople[i]
+                var dn = p.name || I18n.tr("未命名人物")
+                if (f.length > 0 && dn.toLowerCase().indexOf(f) < 0) continue
+                targetModel.append(p)
+            }
+        }
 
         background: Rectangle {
             color: Theme.surface
@@ -390,13 +405,30 @@ Dialog {
             anchors.fill: parent
             spacing: 6
 
+            /* 0.6.13：标题 + 显式关闭按钮（原弹窗只能 Esc/点外面关闭） */
+            RowLayout {
+                Layout.fillWidth: true
+                Text {
+                    text: I18n.tr("并入到目标人物")
+                    font.family: Theme.fontFamily
+                    font.pixelSize: 13
+                    font.weight: Font.DemiBold
+                    color: Theme.text
+                    Layout.fillWidth: true
+                }
+                PMButton {
+                    text: I18n.tr("关闭")
+                    height: 26
+                    onClicked: picker.close()
+                }
+            }
             TextField {
                 id: targetFilter
                 Layout.fillWidth: true
                 placeholderText: I18n.tr("搜索人物名…")
                 font.family: Theme.fontFamily
                 font.pixelSize: 12
-                onTextChanged: targetList.positionViewAtBeginning()
+                onTextChanged: picker.rebuildTarget()
             }
             ListView {
                 id: targetList

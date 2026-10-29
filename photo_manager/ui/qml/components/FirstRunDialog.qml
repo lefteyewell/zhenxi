@@ -186,6 +186,14 @@ Popup {
                 }
             }
             Text {
+                width: parent.width
+                text: I18n.tr("可添加多个根目录；此后随时可在 设置 → 照片库根目录 中增删。")
+                font.family: Theme.fontFamily
+                font.pixelSize: 11
+                color: Theme.textDim
+                wrapMode: Text.Wrap
+            }
+            Text {
                 id: rootDirText
                 visible: false
                 text: I18n.tr("（未设置）")

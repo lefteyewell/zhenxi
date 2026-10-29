@@ -39,6 +39,7 @@ Item {
     ListModel { id: itemsModel }
     property var selectedIds: []
     property bool _batchMode: false
+    property bool _confirmDelete: false
     /* 0.5.36：列表排序（0=数量多→少；1=名称 A→Z）。
        0.5.67：①"按数量"此前只是后端默认序（按人物 id），并非数量序——显式
        按 photoCount 降序；②名称排序改自然数序（人物1、人物2…人物10、
@@ -225,6 +226,35 @@ Item {
                         height: 26
                         anchors.verticalCenter: parent.verticalCenter
                         onClicked: root.batchMergeRequested(root.selectedIds)
+                    }
+                    PMButton {
+                        id: batchDeleteBtn
+                        objectName: "categoryBatchDeleteBtn"
+                        tooltip: I18n.tr("删除选中的人物：人脸回归未指派（可重新聚类或手动指派），照片不受影响")
+                        text: root._confirmDelete
+                              ? I18n.tr("确认删除（") + root.selectedIds.length + I18n.tr(" 个）？")
+                              : I18n.tr("删除选中人物")
+                        height: 26
+                        emphasized: root._confirmDelete
+                        anchors.verticalCenter: parent.verticalCenter
+                        onClicked: {
+                            if (!root._confirmDelete) {
+                                root._confirmDelete = true
+                                delReset.restart()
+                                return
+                            }
+                            root._confirmDelete = false
+                            delReset.stop()
+                            var n = LibraryBridge.deletePersons(root.selectedIds)
+                            root.selectedIds = []
+                            root.updateBatchBar()
+                            root.refresh()
+                        }
+                        Timer {
+                            id: delReset
+                            interval: 4000
+                            onTriggered: root._confirmDelete = false
+                        }
                     }
                     PMButton {
                         objectName: "categoryBatchClearBtn"

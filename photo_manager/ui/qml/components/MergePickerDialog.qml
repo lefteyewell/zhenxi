@@ -52,6 +52,21 @@ Popup {
 
     ListModel { id: itemsModel }
 
+    /* 0.6.13：候选主列表 + 按搜索词过滤重建（大人物库不必滚动查找） */
+    property var masterItems: []
+
+    function rebuildItems() {
+        itemsModel.clear()
+        var f = searchBox.text.trim().toLowerCase()
+        for (var i = 0; i < masterItems.length; ++i) {
+            var it = masterItems[i]
+            if (f.length > 0 && String(it.name || "").toLowerCase().indexOf(f) < 0)
+                continue
+            itemsModel.append(it)
+        }
+        listView.currentIndex = itemsModel.count > 0 ? 0 : -1
+    }
+
     contentItem: ColumnLayout {
         spacing: Theme.spacingMedium
         RowLayout {
@@ -74,6 +89,15 @@ Popup {
             font.pixelSize: 12
             color: Theme.textDim
             wrapMode: Text.Wrap
+        }
+        TextField {
+            id: searchBox
+            objectName: "mergePickerSearch"
+            Layout.fillWidth: true
+            placeholderText: I18n.tr("搜索…")
+            font.family: Theme.fontFamily
+            font.pixelSize: 12
+            onTextChanged: root.rebuildItems()
         }
         Rectangle {
             Layout.fillWidth: true
@@ -162,7 +186,7 @@ Popup {
     onOpened: refresh()
 
     function refresh() {
-        itemsModel.clear()
+        masterItems = []
         var arr = LibraryBridge.people()
         if (root.mode === "tag")
             arr = LibraryBridge.tags()
@@ -172,12 +196,12 @@ Popup {
                          ? (it.id === root.sourceId)
                          : (it.name === root.sourceTag)
             if (isSelf) continue
-            itemsModel.append({
+            masterItems.push({
                 name: it.name,
                 id: it.id || 0,
                 photoCount: it.photoCount
             })
         }
-        listView.currentIndex = itemsModel.count > 0 ? 0 : -1
+        rebuildItems()
     }
 }

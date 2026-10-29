@@ -1457,5 +1457,16 @@
 "按名称搜索文件夹（库内已收录的目录）": "Search folders by name (library-indexed directories)",
 "清除": "Clear",
 "库内没有名称包含「": "No library folder name contains “",
-"」的文件夹": "”"
+"」的文件夹": "”",
+"或直接输入文件夹路径": "or type a folder path directly",
+"添加": "Add",
+"搜索…": "Search…",
+"并入到目标人物": "Merge into target person",
+"可添加多个根目录；此后随时可在 设置 → 照片库根目录 中增删。": "You can add multiple roots; add or remove them anytime later in Settings → Library roots.",
+"删除选中人物": "Delete selected persons",
+"确认删除（": "Confirm delete (",
+"个）？": ")?",
+"删除选中的人物：人脸回归未指派（可重新聚类或手动指派），照片不受影响": "Delete selected persons: their faces return to unassigned (re-cluster or assign manually later); photos are unaffected",
+" 个人物": " person(s)",
+" 个）？": ")?"
 }
