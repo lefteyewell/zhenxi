@@ -479,7 +479,7 @@ class LibraryBridge(QObject):
             b = blurs.get(pid)
             item["blurIdx"] = round(b) if b is not None else -1
             row = zero_row if pid == 0 else av_rows.get(pid)
-            av = self._face_avatar(row)
+            av = self._face_avatar(pid, row)
             if av:
                 item.update(av)
             out.append(item)
@@ -492,15 +492,19 @@ class LibraryBridge(QObject):
                         "unassigned": True})
         return out
 
-    def _face_avatar(self, row) -> dict | None:
-        """由 (face_id, bbox, file_path, thumbnail_path, w, h, tw, th) 行算头像。
+    def _face_avatar(self, pid: int, row, cached: bool = True) -> dict | None:
+        """由 pid 与 (face_id, bbox, file_path, thumbnail_path, w, h, tw, th)
+        行算人物头像。
 
         bbox 是检测缩放图（最长边 ≤ MAX_DIM）坐标，与 photoFaces 同一套归一化
         口径；归一化坐标与分辨率无关，可直接映射到缩略图或原图像素。
 
-        0.6.17：优先使用 data/face_crops 高质量裁剪缓存（清晰且零原图解码）；
-        未生成时回退缩略图裁剪（0.6.14 行为，缩略图仅 512px、人脸区域模糊）
-        并入后台队列从原图构建缓存——每张脸的原图只解码一次，此后永久走缓存。"""
+        0.6.18：缓存按**人物**而不是按脸（每个人物只有代表头像一张，
+        7.8 万脸的库从 ~2GB 降到人数×12KB）；优先 data/face_crops 高质量
+        裁剪缓存（清晰且零原图解码）；未生成时回退缩略图裁剪并入后台
+        队列从原图构建——每个人物只解码一次原图，此后永久走缓存。
+        cached=False（头像管理网格逐脸展示）：跳过人物缓存，只用缩略图
+        裁剪——每张脸一张缓存会让缓存膨胀 2GB 级。"""
         import json
 
         if not row:
@@ -516,17 +520,18 @@ class LibraryBridge(QObject):
         sw = max(1, round(w * scale))
         sh = max(1, round(h * scale))
         nx, ny, nw, nh = bx / sw, by / sh, bw / sw, bh / sh
-        cache = self._face_crop_path(face_id)
-        if cache.exists():
-            try:
-                from PIL import Image
+        if cached:
+            cache = self._person_avatar_path(pid, face_id)
+            if cache.exists():
+                try:
+                    from PIL import Image
 
-                with Image.open(cache) as im:
-                    cw, ch = im.size
-                return {"avatarSrc": str(cache), "avatarX": 0, "avatarY": 0,
-                        "avatarW": cw, "avatarH": ch}
-            except Exception:
-                pass
+                    with Image.open(cache) as im:
+                        cw, ch = im.size
+                    return {"avatarSrc": str(cache), "avatarX": 0,
+                            "avatarY": 0, "avatarW": cw, "avatarH": ch}
+                except Exception:
+                    pass
         tr = self._resolve(tpath)
         if tr is not None and tw and th:
             src, rw, rh = str(tr), tw, th
@@ -534,7 +539,8 @@ class LibraryBridge(QObject):
             src, rw, rh = fpath, w, h
         else:
             return None
-        self._queue_face_crop(face_id)
+        if cached:
+            self._queue_face_crop(pid, face_id, bx, by, bw, bh, fpath, w, h)
         return {
             "avatarSrc": src,
             "avatarX": max(0, round(nx * rw)),
@@ -543,64 +549,55 @@ class LibraryBridge(QObject):
             "avatarH": max(1, round(nh * rh)),
         }
 
-    def _face_crop_path(self, face_id: int) -> Path:
-        """人脸高质量裁剪缓存路径：data/face_crops/{id%256}/face_{id}.jpg。"""
-        return (Path(self.db.path).parent / "face_crops"
-                / f"{face_id % 256:02d}" / f"face_{face_id}.jpg")
+    def _person_avatar_path(self, pid: int, face_id: int) -> Path:
+        """人物头像缓存路径：face_crops/p{pid%256}/p{pid}_f{face_id}.jpg。
 
-    def _queue_face_crop(self, face_id: int) -> None:
-        """人脸头像缓存后台构建队列：每张脸的原图只解码一次（0.6.17）。"""
-        if face_id in self._fc_seen:
+        文件名带代表脸 id：代表脸变化（重聚类/合并）时自动失效重建，
+        旧文件成为少量孤儿（聚类完成时会整体清空）。"""
+        return (Path(self.db.path).parent / "face_crops"
+                / f"p{pid % 256:04d}" / f"p{pid}_f{face_id}.jpg")
+
+    def _queue_face_crop(self, pid: int, face_id: int,
+                         bx: float, by: float, bw: float, bh: float,
+                         fpath: str, w: int, h: int) -> None:
+        """人物头像缓存后台构建队列：每个人物只解码一次原图（0.6.18）。
+
+        队列直接携带裁剪参数——worker 线程**零数据库访问**（共享连接
+        跨线程有语句缓存竞态前科，且不持库文件句柄，测试清理不受影响）。"""
+        key = (pid, face_id)
+        if key in self._fc_seen:
             return
-        self._fc_seen.add(face_id)
+        self._fc_seen.add(key)
         with self._fc_lock:
             if self._fc_thread is None:
                 self._fc_thread = threading.Thread(
                     target=self._fc_worker, daemon=True,
                     name="face-crop-cache")
                 self._fc_thread.start()
-        self._fcq.put(face_id)
+        self._fcq.put(key)
 
     def _fc_worker(self) -> None:
         while True:
-            fid = self._fcq.get()
-            if fid is None:
+            key = self._fcq.get()
+            if key is None:
                 return
             try:
-                self._build_face_crop(fid)
+                self._build_face_crop(*key)
             except Exception:
-                log.exception("人脸头像缓存构建失败 face_id=%s", fid)
+                log.exception("人物头像缓存构建失败 pid=%s face_id=%s", *key)
             finally:
                 self._fcq.task_done()
             time.sleep(0.02)  # 温和节流，避免持续满速读盘挤占浏览
 
-    def _build_face_crop(self, face_id: int) -> None:
-        """从原图构建高质量人脸裁剪缓存（200px，25% 边距）。
-
-        后台线程用独立 sqlite 连接（共享连接跨线程有语句缓存竞态前科）。"""
-        import json
-        import sqlite3
-
-        out = self._face_crop_path(face_id)
+    def _build_face_crop(self, pid: int, face_id: int,
+                         bx: float, by: float, bw: float, bh: float,
+                         fpath: str, w: int, h: int) -> None:
+        """从原图构建高质量人物头像缓存（200px，25% 边距）。"""
+        out = self._person_avatar_path(pid, face_id)
         if out.exists():
             return
-        conn = sqlite3.connect(self.db.path, timeout=10)
-        try:
-            row = conn.execute(
-                "SELECT f.bbox, p.file_path, p.width, p.height"
-                " FROM faces f JOIN photos p ON p.id = f.photo_id WHERE f.id=?",
-                (face_id,)).fetchone()
-        finally:
-            conn.close()
-        if not row:
-            return
-        bbox, fpath, w, h = row
         fp = self._resolve(fpath)
         if fp is None or not (w and h):
-            return
-        try:
-            bx, by, bw, bh = json.loads(bbox)
-        except Exception:
             return
         scale = min(1.0, MAX_DIM / max(h, w)) if max(h, w) > 0 else 1.0
         x = int(bx / scale)
@@ -622,7 +619,7 @@ class LibraryBridge(QObject):
             out.parent.mkdir(parents=True, exist_ok=True)
             crop.save(out, "JPEG", quality=88)
         except Exception:
-            log.exception("人脸裁剪缓存写盘失败 face_id=%s", face_id)
+            log.exception("人物头像缓存写盘失败 pid=%s face_id=%s", pid, face_id)
 
     @Slot(int, int, int, result="QVariant")
     def personPhotos(self, person_id: int, offset: int = 0, limit: int = 500) -> list[dict]:
@@ -860,7 +857,10 @@ class LibraryBridge(QObject):
             item = {"faceId": r[0], "photoId": r[1], "personId": r[2] or 0,
                     "blurIdx": round(r[3]) if r[3] is not None else -1,
                     "name": r[11]}
-            av = self._face_avatar((r[4], r[5], r[6], r[7], r[8], r[9], r[10]))
+            av = self._face_avatar(
+                r[2] or 0,
+                (r[0], r[4], r[5], r[6], r[7], r[8], r[9], r[10]),
+                cached=False)
             if av:
                 item.update(av)
             out.append(item)
@@ -1045,11 +1045,11 @@ class LibraryBridge(QObject):
 
     @Slot(int, result=str)
     def faceCropUrl(self, face_id: int) -> str:
-        """生成单张人脸的裁剪图 URL。
+        """生成单张人脸的裁剪图 URL（信息面板逐脸展示用）。
 
-        0.6.17：优先返回 data/face_crops 持久缓存（清晰且零解码）；
-        未命中时从原图同步构建一次并写入缓存（用户点击单张脸，可接受）；
-        原图缺失时回退缩略图裁剪（仅存临时目录，不锁定低清版本）。"""
+        0.6.18：裁剪结果存**临时目录**（会话级）——按脸持久化会让
+        face_crops 膨胀到 2GB 级（每张脸一张）；人物页头像已改为按人物
+        缓存（人物数级别）。从原图构建（清晰），失败回退缩略图裁剪。"""
         row = self.db.conn.execute(
             "SELECT f.photo_id, f.bbox, p.file_path, p.width, p.height,"
             " p.thumbnail_path, p.thumb_width, p.thumb_height"
@@ -1076,12 +1076,11 @@ class LibraryBridge(QObject):
         try:
             from PIL import Image, ImageOps
 
-            cache = self._face_crop_path(face_id)
-            # 缓存命中：直接返回（与 _face_avatar 同源，清晰版）
-            if cache.exists():
-                return QUrl.fromLocalFile(str(cache)).toString()
+            cache_dir = Path(tempfile.gettempdir()) / "pm_faces"
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            out = cache_dir / f"face_{face_id}.jpg"
             crop = None
-            # 原图构建（写入持久缓存）
+            # 原图构建（清晰版，含 EXIF 方向处理）
             with Image.open(fp) as im:
                 im = ImageOps.exif_transpose(im).convert("RGB")
                 ww, hh = im.size
@@ -1098,11 +1097,10 @@ class LibraryBridge(QObject):
                 x1, y1 = min(ww, x + cw + mx), min(hh, y + ch + my)
                 crop = im.crop((x0, y0, x1, y1))
             crop.thumbnail((200, 200))
-            cache.parent.mkdir(parents=True, exist_ok=True)
-            crop.save(cache, "JPEG", quality=88)
-            return QUrl.fromLocalFile(str(cache)).toString()
+            crop.save(out, "JPEG", quality=88)
+            return QUrl.fromLocalFile(str(out)).toString()
         except Exception:
-            # 回退：缩略图裁剪（原图缺失/损坏），存临时目录不锁定低清版
+            # 回退：缩略图裁剪（原图缺失/损坏）
             try:
                 tr = self._resolve(tpath)
                 if tr is None or not tw or not th:
@@ -5345,4 +5343,11 @@ class LibraryBridge(QObject):
         return out
 
     def close(self) -> None:
+        # 0.6.17：先停止人脸头像缓存后台线程（发停止哨兵并等待收尾），
+        # 避免线程仍持有库文件句柄导致测试/临时目录清理失败
+        with self._fc_lock:
+            if self._fc_thread is not None:
+                self._fcq.put(None)
+                self._fc_thread.join(timeout=5)
+                self._fc_thread = None
         self.db.close()

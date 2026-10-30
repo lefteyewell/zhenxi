@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import logging
 import time
+from pathlib import Path
 from typing import Callable
 
 import numpy as np
@@ -194,6 +195,15 @@ class FaceClusterer:
             conn.execute("UPDATE persons SET face_count=? WHERE id=?", (rep_counts[rep], pid))
         conn.commit()
         conn.close()
+        # 0.6.18：聚类重建后人物 id 全部更换，data/face_crops 人物头像缓存
+        # 整体失效——直接清空（可再生成；新缓存按新人物 id 惰性重建）
+        try:
+            import shutil
+
+            shutil.rmtree(
+                Path(self.db.path).parent / "face_crops", ignore_errors=True)
+        except Exception:
+            pass
         return {
             "faces": n,
             "persons": len(person_map),
