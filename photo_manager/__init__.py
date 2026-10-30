@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 APP_NAME = "真昔"
-APP_VERSION = "0.6.15"
+APP_VERSION = "0.6.16"
 APP_COPYRIGHT = "© 2026 蒙汗药 · 基于 GNU GPLv3 许可（见 帮助 → 关于）"
 
 PACKAGE_DIR = Path(__file__).resolve().parent

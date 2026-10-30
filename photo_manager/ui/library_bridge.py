@@ -134,7 +134,7 @@ class LibraryBridge(QObject):
         try:
             self._face_threshold = min(0.70, max(0.40, float(
                 _QS("PhotoManager", "PhotoManager")
-                .value("faces/clusterThreshold", 0.6, type=float))))
+                .value("faces/clusterThreshold", 0.5, type=float))))
         except (TypeError, ValueError):
             self._face_threshold = 0.6
         # 0.6.9：分析并行度（"auto"=自动留 2 核 / "full"=全速占满核 /

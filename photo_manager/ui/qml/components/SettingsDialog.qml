@@ -242,7 +242,8 @@ Dialog {
                     Layout.fillWidth: true
                     text: I18n.tr("越大越严格：调高会把相像的人物拆开（宁分勿合，需手动合并），"
                                   + "调低合并更激进（误并风险增大）。"
-                                  + "改动后需重新执行「人脸聚类」才生效（工具中心 → 人脸聚类）。")
+                                  + "改动后需重新执行「人脸聚类」才生效（工具中心 → 人脸聚类）。"
+                                  + "建议设置为 0.5，过高会导致运行缓慢。")
                     font.family: Theme.fontFamily
                     font.pixelSize: 11
                     color: Theme.textDim
