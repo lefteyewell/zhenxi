@@ -878,6 +878,73 @@ class LibraryBridge(QObject):
             log.exception("批量移动人脸失败")
             return 0
 
+    @Slot(int, int, str, result="QVariant")
+    def peoplePaged(self, offset: int, limit: int, search: str = "") -> dict:
+        """人物列表分页（0.6.15）：按照片数降序，支持服务器端按名搜索。
+
+        0.6.14 修了解码风暴后，7.8 万人物一次性构造完整列表仍是内存/换页
+        大头（Python dict → QVariant → QML 模型三层拷贝，人物页与"返回"
+        假死的最终形态，交换空间被吃掉一半）。改为每页 300、滚动到底自动
+        追加；返回 {items:[...], total:N}（未命名人物固定排在最后一项）。"""
+        conn = self.db.conn
+        names = self._person_display_map()
+        counts = {r[0]: r[1] for r in conn.execute(
+            "SELECT person_id, COUNT(DISTINCT photo_id) FROM faces"
+            " WHERE hidden=0 AND person_id IS NOT NULL AND person_id != ''"
+            " GROUP BY person_id")}
+        blurs = {r[0]: r[1] for r in conn.execute(
+            "SELECT person_id, AVG(blur) FROM faces"
+            " WHERE hidden=0 AND blur IS NOT NULL AND blur >= 0"
+            " GROUP BY person_id")}
+        q = (search or "").strip().lower()
+        entries = []
+        for pid in sorted(names):
+            if pid <= 0:
+                continue
+            name = names[pid]
+            if q and q not in name.lower():
+                continue
+            entries.append((-counts.get(pid, 0), pid, name))
+        entries.sort()
+        unseen = conn.execute(
+            "SELECT COUNT(DISTINCT photo_id) FROM faces"
+            " WHERE (person_id IS NULL OR person_id='') AND hidden=0"
+        ).fetchone()[0]
+        # 搜索时"未命名人物"固定参与匹配（前缀），始终作为最后一项
+        has_unseen = unseen > 0 and (not q or "未命名人物".startswith(q))
+        total = len(entries) + (1 if has_unseen else 0)
+        page = []
+        page_entries = entries[offset:offset + limit]
+        pids = [e[1] for e in page_entries]
+        av_rows = {}
+        if pids:
+            marks = ",".join("?" * len(pids))
+            av_rows = {
+                r[0]: r[1:]
+                for r in conn.execute(
+                    f"SELECT f.person_id, f.bbox, p.file_path, p.thumbnail_path,"
+                    f" p.width, p.height, p.thumb_width, p.thumb_height"
+                    f" FROM (SELECT id, person_id, bbox, photo_id,"
+                    f"  ROW_NUMBER() OVER (PARTITION BY person_id"
+                    f"  ORDER BY score DESC) rn"
+                    f"  FROM faces WHERE hidden=0 AND person_id IN ({marks})) f"
+                    f" JOIN photos p ON p.id = f.photo_id WHERE f.rn=1",
+                    pids)
+            }
+        for neg, pid, name in page_entries:
+            item = {"id": pid, "name": name, "photoCount": counts.get(pid, 0)}
+            b = blurs.get(pid)
+            item["blurIdx"] = round(b) if b is not None else -1
+            row = av_rows.get(pid)
+            av = self._face_avatar(row)
+            if av:
+                item.update(av)
+            page.append(item)
+        if offset < total <= offset + limit and has_unseen:
+            page.append({"id": 0, "name": "未命名人物", "photoCount": unseen,
+                         "unassigned": True})
+        return {"items": page, "total": total}
+
     @Slot(int, result=str)
     def faceCropUrl(self, face_id: int) -> str:
         """生成单张人脸的裁剪缩略图（按 bbox 裁剪，存缓存目录），返回 URL。

@@ -97,7 +97,8 @@ Popup {
             placeholderText: I18n.tr("搜索…")
             font.family: Theme.fontFamily
             font.pixelSize: 12
-            onTextChanged: root.rebuildItems()
+            /* 0.6.15：人物模式服务器端搜索（重查询），标签模式客户端过滤 */
+            onTextChanged: root.refresh()
         }
         Rectangle {
             Layout.fillWidth: true
@@ -187,20 +188,23 @@ Popup {
 
     function refresh() {
         masterItems = []
-        var arr = LibraryBridge.people()
-        if (root.mode === "tag")
-            arr = LibraryBridge.tags()
-        for (var i = 0; i < arr.length; ++i) {
-            var it = arr[i]
-            var isSelf = root.mode === "person"
-                         ? (it.id === root.sourceId)
-                         : (it.name === root.sourceTag)
-            if (isSelf) continue
-            masterItems.push({
-                name: it.name,
-                id: it.id || 0,
-                photoCount: it.photoCount
-            })
+        if (root.mode === "person") {
+            /* 0.6.15：人物模式走服务器端搜索（大人物库不全量加载） */
+            var r = LibraryBridge.peoplePaged(0, 500, searchBox.text.trim())
+            for (var i = 0; i < r.items.length; ++i) {
+                var it = r.items[i]
+                if (it.id === root.sourceId) continue
+                masterItems.push({name: it.name, id: it.id,
+                                  photoCount: it.photoCount})
+            }
+        } else {
+            var arr = LibraryBridge.tags()
+            for (var j = 0; j < arr.length; ++j) {
+                var t = arr[j]
+                if (t.name === root.sourceTag) continue
+                masterItems.push({name: t.name, id: 0,
+                                  photoCount: t.photoCount})
+            }
         }
         rebuildItems()
     }

@@ -40,6 +40,10 @@ Item {
     property var selectedIds: []
     property bool _batchMode: false
     property bool _confirmDelete: false
+    /* 0.6.15：人物列表分页（每页 300，滚动到底自动追加） */
+    property int _pplOffset: 0
+    property int _pplTotal: 0
+    readonly property int _pplPage: 300
     /* 0.5.36：列表排序（0=数量多→少；1=名称 A→Z）。
        0.5.67：①"按数量"此前只是后端默认序（按人物 id），并非数量序——显式
        按 photoCount 降序；②名称排序改自然数序（人物1、人物2…人物10、
@@ -103,7 +107,15 @@ Item {
 
     function refresh() {
         itemsModel.clear()
-        var arr = LibraryBridge.people()
+        if (kind === "people") {
+            /* 0.6.15：人物列表分页——7.8 万人物一次性构造完整列表是
+               内存/换页假死（"返回"无响应）的根源，每页 300 滚动追加 */
+            root._pplOffset = 0
+            root._pplTotal = 0
+            root._appendPeoplePage()
+            return
+        }
+        var arr = []
         if (kind === "locations")
             arr = LibraryBridge.locations()
         else if (kind === "devices")
@@ -118,6 +130,20 @@ Item {
             itemsModel.append(it)
         }
         countText.text = arr.length + I18n.tr(" 项")
+    }
+
+    function _appendPeoplePage() {
+        var r = LibraryBridge.peoplePaged(root._pplOffset, root._pplPage, "")
+        var arr = r.items
+        for (var i = 0; i < arr.length; ++i) {
+            var it = arr[i]
+            if (it.lat === undefined) it.lat = 0
+            if (it.lon === undefined) it.lon = 0
+            itemsModel.append(it)
+        }
+        root._pplOffset += arr.length
+        root._pplTotal = r.total
+        countText.text = root._pplTotal + I18n.tr(" 项")
     }
 
     function _icon() {
@@ -498,6 +524,12 @@ Item {
                 cellWidth: 124
                 cellHeight: 152
                 currentIndex: -1
+                /* 0.6.15：滚到列表末尾自动加载下一页人物 */
+                onAtYEndChanged: {
+                    if (atYEnd && root.kind === "people"
+                            && root._pplOffset < root._pplTotal)
+                        root._appendPeoplePage()
+                }
                 ScrollBar.vertical: PMScrollBar { policy: ScrollBar.AlwaysOn }
                 model: itemsModel
 

@@ -322,17 +322,11 @@ Dialog {
                 height: 30
                 enabled: root.checkedFaceIds.length > 0
                 onClicked: {
-                    picker.masterPeople = []
-                    var ppl = LibraryBridge.people()
-                    for (var i = 0; i < ppl.length; ++i) {
-                        if (ppl[i].id === root.personId || ppl[i].unassigned) continue
-                        picker.masterPeople.push(ppl[i])
-                    }
-                    if (picker.masterPeople.length === 0) {
+                    picker.rebuildTarget()
+                    if (targetModel.count === 0) {
                         root.messageRequested(I18n.tr("没有可并入的其他人物"), "warning")
                         return
                     }
-                    picker.rebuildTarget()
                     picker.open()
                 }
             }
@@ -380,17 +374,16 @@ Dialog {
         modal: true
         padding: 8
 
-        /* 0.6.13：候选人物主列表 + 按搜索词过滤重建（原搜索框未接过滤） */
-        property var masterPeople: []
-
+        /* 0.6.15：服务器端搜索——peoplePaged(offset,limit,search) 按名过滤，
+           7.8 万人物库不再全量加载（原 masterPeople 全量构建同样吃爆内存） */
         function rebuildTarget() {
             targetModel.clear()
-            var f = targetFilter.text.trim().toLowerCase()
-            for (var i = 0; i < masterPeople.length; ++i) {
-                var p = masterPeople[i]
-                var dn = p.name || I18n.tr("未命名人物")
-                if (f.length > 0 && dn.toLowerCase().indexOf(f) < 0) continue
-                targetModel.append(p)
+            var r = LibraryBridge.peoplePaged(
+                0, 200, targetFilter.text.trim())
+            for (var i = 0; i < r.items.length; ++i) {
+                if (r.items[i].unassigned) continue
+                if (r.items[i].id === root.personId) continue
+                targetModel.append(r.items[i])
             }
         }
 
