@@ -443,27 +443,36 @@ class LibraryBridge(QObject):
             " WHERE hidden=0 AND blur IS NOT NULL AND blur >= 0"
             " GROUP BY person_id")}
         out = []
+        # 0.6.14：代表头像一次取全——原实现每人 1 次查询（7.8 万人物 =
+        # 7.8 万次查询全在 UI 线程，人物页打开即卡死）。窗口函数每人物
+        # 只取置信度最高的一张脸。
+        av_rows = {
+            r[0]: r[1:]
+            for r in conn.execute(
+                "SELECT f.person_id, f.bbox, p.file_path, p.thumbnail_path,"
+                " p.width, p.height, p.thumb_width, p.thumb_height"
+                " FROM (SELECT id, person_id, bbox, photo_id,"
+                "  ROW_NUMBER() OVER (PARTITION BY person_id"
+                "  ORDER BY score DESC) rn"
+                "  FROM faces WHERE hidden=0"
+                "  AND person_id IS NOT NULL AND person_id != '') f"
+                " JOIN photos p ON p.id = f.photo_id WHERE f.rn=1"
+            )
+        }
+        zero_row = conn.execute(
+            "SELECT f.bbox, p.file_path, p.thumbnail_path, p.width, p.height,"
+            " p.thumb_width, p.thumb_height"
+            " FROM faces f JOIN photos p ON p.id = f.photo_id"
+            " WHERE (f.person_id IS NULL OR f.person_id='') AND f.hidden=0"
+            " ORDER BY f.score DESC LIMIT 1",
+        ).fetchone()
         for pid in sorted(names):
             item = {"id": pid, "name": names[pid],
                     "photoCount": counts.get(pid, 0)}
             # 0.5.37：人物平均模糊指数（未评分/文件缺失的脸不参与均值）
             b = blurs.get(pid)
             item["blurIdx"] = round(b) if b is not None else -1
-            if pid > 0:
-                row = conn.execute(
-                    "SELECT f.bbox, p.file_path, p.thumbnail_path, p.width, p.height,"
-                    " p.thumb_width, p.thumb_height"
-                    " FROM faces f JOIN photos p ON p.id = f.photo_id"
-                    " WHERE f.person_id=? AND f.hidden=0 ORDER BY f.score DESC LIMIT 1", (pid,),
-                ).fetchone()
-            else:  # 未命名人物（id 0）：任取一张未指派的脸
-                row = conn.execute(
-                    "SELECT f.bbox, p.file_path, p.thumbnail_path, p.width, p.height,"
-                    " p.thumb_width, p.thumb_height"
-                    " FROM faces f JOIN photos p ON p.id = f.photo_id"
-                    " WHERE (f.person_id IS NULL OR f.person_id='') AND f.hidden=0"
-                    " ORDER BY f.score DESC LIMIT 1",
-                ).fetchone()
+            row = zero_row if pid == 0 else av_rows.get(pid)
             av = self._face_avatar(row)
             if av:
                 item.update(av)
@@ -477,8 +486,7 @@ class LibraryBridge(QObject):
                         "unassigned": True})
         return out
 
-    @staticmethod
-    def _face_avatar(row) -> dict | None:
+    def _face_avatar(self, row) -> dict | None:
         """由 (bbox, file_path, thumbnail_path, w, h, tw, th) 行算头像裁剪框。
 
         bbox 是检测缩放图（最长边 ≤ MAX_DIM）坐标，与 photoFaces 同一套归一化
@@ -499,8 +507,13 @@ class LibraryBridge(QObject):
         sw = max(1, round(w * scale))
         sh = max(1, round(h * scale))
         nx, ny, nw, nh = bx / sw, by / sh, bw / sw, bh / sh
-        if tpath and tw and th and Path(tpath).exists():
-            src, rw, rh = tpath, tw, th
+        # 0.6.14：thumbnail_path 存相对路径（相对 data 目录，0.5.51 起），
+        # 必须经 _resolve 解析——原实现 Path(tpath).exists() 按 CWD 判断
+        # 在打包环境永远失败，头像全部回退加载原图（7.8 万人物页 =
+        # 7.8 万次全尺寸原图解码，磁盘 60-200MB/s、界面假死）
+        tr = self._resolve(tpath)
+        if tr is not None and tw and th:
+            src, rw, rh = str(tr), tw, th
         elif fpath and Path(fpath).exists():
             src, rw, rh = fpath, w, h
         else:
@@ -867,9 +880,13 @@ class LibraryBridge(QObject):
 
     @Slot(int, result=str)
     def faceCropUrl(self, face_id: int) -> str:
-        """生成单张人脸的裁剪缩略图（按 bbox 从原图裁剪，存缓存目录），返回 URL。"""
+        """生成单张人脸的裁剪缩略图（按 bbox 裁剪，存缓存目录），返回 URL。
+
+        0.6.14：优先从缩略图文件裁剪（小文件毫秒级）——原实现每次全尺寸
+        解码原图，弱机上信息面板人脸列表成为磁盘风暴源。"""
         row = self.db.conn.execute(
-            "SELECT f.photo_id, f.bbox, p.file_path, p.width, p.height"
+            "SELECT f.photo_id, f.bbox, p.file_path, p.width, p.height,"
+            " p.thumbnail_path, p.thumb_width, p.thumb_height"
             " FROM faces f JOIN photos p ON p.id = f.photo_id WHERE f.id=?",
             (face_id,),
         ).fetchone()
@@ -878,7 +895,7 @@ class LibraryBridge(QObject):
         import json
         from PySide6.QtCore import QUrl
 
-        photo_id, bbox, file_path, w, h = row
+        photo_id, bbox, file_path, w, h, tpath, tw, th = row
         fp = self._resolve(file_path)
         if fp is None:
             return ""
@@ -887,27 +904,43 @@ class LibraryBridge(QObject):
         except Exception:
             return ""
         scale = min(1.0, MAX_DIM / max(h, w)) if max(h, w) > 0 else 1.0
-        x = int(bx / scale)
-        y = int(by / scale)
-        cw = int(bw / scale)
-        ch = int(bh / scale)
+        sw = max(1, round(w * scale))
+        sh = max(1, round(h * scale))
+        nx, ny, nw, nh = bx / sw, by / sh, bw / sw, bh / sh
         try:
             from PIL import Image, ImageOps
 
-            with Image.open(fp) as im:
-                im = ImageOps.exif_transpose(im).convert("RGB")
-                ww, hh = im.size
-                x = max(0, min(x, ww - 1))
-                y = max(0, min(y, hh - 1))
-                cw = max(8, min(cw, ww - x))
-                ch = max(8, min(ch, hh - y))
-                crop = im.crop((x, y, x + cw, y + ch))
-                crop.thumbnail((160, 160))
-                cache_dir = Path(tempfile.gettempdir()) / "pm_faces"
-                cache_dir.mkdir(parents=True, exist_ok=True)
-                out = cache_dir / f"face_{face_id}.jpg"
-                crop.save(out, "JPEG", quality=85)
-                return QUrl.fromLocalFile(str(out)).toString()
+            tr = self._resolve(tpath)
+            crop = None
+            if tr is not None and tw and th:
+                # 缩略图分支：归一化框直接映射到缩略图像素
+                with Image.open(tr) as im:
+                    ww, hh = im.size
+                    x = max(0, min(int(nx * ww), ww - 1))
+                    y = max(0, min(int(ny * hh), hh - 1))
+                    cw = max(8, min(int(nw * ww), ww - x))
+                    ch = max(8, min(int(nh * hh), hh - y))
+                    crop = im.convert("RGB").crop((x, y, x + cw, y + ch))
+            else:
+                # 回退：解码原图（EXIF 方向已处理）
+                with Image.open(fp) as im:
+                    im = ImageOps.exif_transpose(im).convert("RGB")
+                    ww, hh = im.size
+                    x = int(bx / scale)
+                    y = int(by / scale)
+                    cw = int(bw / scale)
+                    ch = int(bh / scale)
+                    x = max(0, min(x, ww - 1))
+                    y = max(0, min(y, hh - 1))
+                    cw = max(8, min(cw, ww - x))
+                    ch = max(8, min(ch, hh - y))
+                    crop = im.crop((x, y, x + cw, y + ch))
+            crop.thumbnail((160, 160))
+            cache_dir = Path(tempfile.gettempdir()) / "pm_faces"
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            out = cache_dir / f"face_{face_id}.jpg"
+            crop.save(out, "JPEG", quality=85)
+            return QUrl.fromLocalFile(str(out)).toString()
         except Exception:
             return ""
 

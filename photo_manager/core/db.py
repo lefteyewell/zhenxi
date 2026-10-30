@@ -317,6 +317,11 @@ class Database:
         self.conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_faces_person ON faces(person_id)"
         )
+        # 0.6.14：重复页每次进入都 GROUP BY perceptual_hash（2.4 万行全表
+        # 聚合），加索引走索引扫描
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_photos_phash ON photos(perceptual_hash)"
+        )
         self.conn.execute(
             "CREATE TABLE IF NOT EXISTS analysis_state ("
             " stage TEXT PRIMARY KEY,"
