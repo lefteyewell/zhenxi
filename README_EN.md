@@ -5,17 +5,19 @@ EXIF / folders / arbitrary combinations), thumbnails and full-size viewing,
 batch export at common resolutions — **the app never deletes your original
 files**.
 
-## Latest release v0.6.13 (2026-10-29)
+## Latest release v0.6.14 (2026-10-30)
 
 > 📥 Download: [Releases page](https://github.com/lefteyewell/zhenxi/releases) ｜
 > 📋 All version changes: [CHANGELOG.md](CHANGELOG.md)
 
-- **New**: "Practical tips" section in the in-app help — 8 groups of advanced
-  techniques (search combinations, culling pipeline, scheduled tasks, settings tips…)
-- **New**: multi-select "delete persons" on the People page (faces return to
-  unassigned; photos are never touched)
-- **Fixed**: person "merge into" dialog search was not wired; merge pickers now
-  have search; library roots can be added by typing a path directly
+- **Fixed**: large-person-library performance — person-page avatars now use
+  thumbnails (previously each avatar decoded a full-size original, causing
+  disk storms and UI freezes with tens of thousands of persons); avatar
+  queries fetched in one pass; face cropping accelerated
+- **New**: "Practical tips" section in the in-app help; multi-select "delete
+  persons" on the People page; library roots can be added by typing a path
+- **Fixed**: person "merge into" dialog search was not wired; merge pickers
+  now have search
 
 **English UI**: click the `中 / EN` button at the right end of the top toolbar.
 The interface language is remembered across restarts. Missing translations
