@@ -11,6 +11,7 @@ import shutil
 import sys
 import tempfile
 import threading
+import queue
 from concurrent.futures.process import BrokenProcessPool
 from pathlib import Path
 
@@ -153,6 +154,11 @@ class LibraryBridge(QObject):
         self._busy = 0
         self._busy_lock = threading.Lock()
         self._cancel = threading.Event()
+        # 0.6.17：人脸头像高质量裁剪缓存（data/face_crops）后台构建队列
+        self._fcq: queue.Queue = queue.Queue()
+        self._fc_seen: set[int] = set()
+        self._fc_lock = threading.Lock()
+        self._fc_thread: threading.Thread | None = None
         self._tree_expanded: set[str] = set()
         self._dir_cache: dict[str, str] | None = None
         self._direct_cache: set[str] | None = None
@@ -449,7 +455,7 @@ class LibraryBridge(QObject):
         av_rows = {
             r[0]: r[1:]
             for r in conn.execute(
-                "SELECT f.person_id, f.bbox, p.file_path, p.thumbnail_path,"
+                "SELECT f.person_id, f.id, f.bbox, p.file_path, p.thumbnail_path,"
                 " p.width, p.height, p.thumb_width, p.thumb_height"
                 " FROM (SELECT id, person_id, bbox, photo_id,"
                 "  ROW_NUMBER() OVER (PARTITION BY person_id"
@@ -460,7 +466,7 @@ class LibraryBridge(QObject):
             )
         }
         zero_row = conn.execute(
-            "SELECT f.bbox, p.file_path, p.thumbnail_path, p.width, p.height,"
+            "SELECT f.id, f.bbox, p.file_path, p.thumbnail_path, p.width, p.height,"
             " p.thumb_width, p.thumb_height"
             " FROM faces f JOIN photos p ON p.id = f.photo_id"
             " WHERE (f.person_id IS NULL OR f.person_id='') AND f.hidden=0"
@@ -487,16 +493,19 @@ class LibraryBridge(QObject):
         return out
 
     def _face_avatar(self, row) -> dict | None:
-        """由 (bbox, file_path, thumbnail_path, w, h, tw, th) 行算头像裁剪框。
+        """由 (face_id, bbox, file_path, thumbnail_path, w, h, tw, th) 行算头像。
 
         bbox 是检测缩放图（最长边 ≤ MAX_DIM）坐标，与 photoFaces 同一套归一化
         口径；归一化坐标与分辨率无关，可直接映射到缩略图或原图像素。
-        """
+
+        0.6.17：优先使用 data/face_crops 高质量裁剪缓存（清晰且零原图解码）；
+        未生成时回退缩略图裁剪（0.6.14 行为，缩略图仅 512px、人脸区域模糊）
+        并入后台队列从原图构建缓存——每张脸的原图只解码一次，此后永久走缓存。"""
         import json
 
         if not row:
             return None
-        bbox, fpath, tpath, w, h, tw, th = row
+        face_id, bbox, fpath, tpath, w, h, tw, th = row
         if not (w and h):
             return None
         try:
@@ -507,10 +516,17 @@ class LibraryBridge(QObject):
         sw = max(1, round(w * scale))
         sh = max(1, round(h * scale))
         nx, ny, nw, nh = bx / sw, by / sh, bw / sw, bh / sh
-        # 0.6.14：thumbnail_path 存相对路径（相对 data 目录，0.5.51 起），
-        # 必须经 _resolve 解析——原实现 Path(tpath).exists() 按 CWD 判断
-        # 在打包环境永远失败，头像全部回退加载原图（7.8 万人物页 =
-        # 7.8 万次全尺寸原图解码，磁盘 60-200MB/s、界面假死）
+        cache = self._face_crop_path(face_id)
+        if cache.exists():
+            try:
+                from PIL import Image
+
+                with Image.open(cache) as im:
+                    cw, ch = im.size
+                return {"avatarSrc": str(cache), "avatarX": 0, "avatarY": 0,
+                        "avatarW": cw, "avatarH": ch}
+            except Exception:
+                pass
         tr = self._resolve(tpath)
         if tr is not None and tw and th:
             src, rw, rh = str(tr), tw, th
@@ -518,6 +534,7 @@ class LibraryBridge(QObject):
             src, rw, rh = fpath, w, h
         else:
             return None
+        self._queue_face_crop(face_id)
         return {
             "avatarSrc": src,
             "avatarX": max(0, round(nx * rw)),
@@ -525,6 +542,87 @@ class LibraryBridge(QObject):
             "avatarW": max(1, round(nw * rw)),
             "avatarH": max(1, round(nh * rh)),
         }
+
+    def _face_crop_path(self, face_id: int) -> Path:
+        """人脸高质量裁剪缓存路径：data/face_crops/{id%256}/face_{id}.jpg。"""
+        return (Path(self.db.path).parent / "face_crops"
+                / f"{face_id % 256:02d}" / f"face_{face_id}.jpg")
+
+    def _queue_face_crop(self, face_id: int) -> None:
+        """人脸头像缓存后台构建队列：每张脸的原图只解码一次（0.6.17）。"""
+        if face_id in self._fc_seen:
+            return
+        self._fc_seen.add(face_id)
+        with self._fc_lock:
+            if self._fc_thread is None:
+                self._fc_thread = threading.Thread(
+                    target=self._fc_worker, daemon=True,
+                    name="face-crop-cache")
+                self._fc_thread.start()
+        self._fcq.put(face_id)
+
+    def _fc_worker(self) -> None:
+        while True:
+            fid = self._fcq.get()
+            if fid is None:
+                return
+            try:
+                self._build_face_crop(fid)
+            except Exception:
+                log.exception("人脸头像缓存构建失败 face_id=%s", fid)
+            finally:
+                self._fcq.task_done()
+            time.sleep(0.02)  # 温和节流，避免持续满速读盘挤占浏览
+
+    def _build_face_crop(self, face_id: int) -> None:
+        """从原图构建高质量人脸裁剪缓存（200px，25% 边距）。
+
+        后台线程用独立 sqlite 连接（共享连接跨线程有语句缓存竞态前科）。"""
+        import json
+        import sqlite3
+
+        out = self._face_crop_path(face_id)
+        if out.exists():
+            return
+        conn = sqlite3.connect(self.db.path, timeout=10)
+        try:
+            row = conn.execute(
+                "SELECT f.bbox, p.file_path, p.width, p.height"
+                " FROM faces f JOIN photos p ON p.id = f.photo_id WHERE f.id=?",
+                (face_id,)).fetchone()
+        finally:
+            conn.close()
+        if not row:
+            return
+        bbox, fpath, w, h = row
+        fp = self._resolve(fpath)
+        if fp is None or not (w and h):
+            return
+        try:
+            bx, by, bw, bh = json.loads(bbox)
+        except Exception:
+            return
+        scale = min(1.0, MAX_DIM / max(h, w)) if max(h, w) > 0 else 1.0
+        x = int(bx / scale)
+        y = int(by / scale)
+        cw = int(bw / scale)
+        ch = int(bh / scale)
+        try:
+            from PIL import Image, ImageOps
+
+            with Image.open(fp) as im:
+                im = ImageOps.exif_transpose(im).convert("RGB")
+                ww, hh = im.size
+                # 25% 边距，头像不顶边
+                mx, my = int(cw * 0.25), int(ch * 0.25)
+                x0, y0 = max(0, x - mx), max(0, y - my)
+                x1, y1 = min(ww, x + cw + mx), min(hh, y + ch + my)
+                crop = im.crop((x0, y0, x1, y1))
+            crop.thumbnail((200, 200))
+            out.parent.mkdir(parents=True, exist_ok=True)
+            crop.save(out, "JPEG", quality=88)
+        except Exception:
+            log.exception("人脸裁剪缓存写盘失败 face_id=%s", face_id)
 
     @Slot(int, int, int, result="QVariant")
     def personPhotos(self, person_id: int, offset: int = 0, limit: int = 500) -> list[dict]:
@@ -947,10 +1045,11 @@ class LibraryBridge(QObject):
 
     @Slot(int, result=str)
     def faceCropUrl(self, face_id: int) -> str:
-        """生成单张人脸的裁剪缩略图（按 bbox 裁剪，存缓存目录），返回 URL。
+        """生成单张人脸的裁剪图 URL。
 
-        0.6.14：优先从缩略图文件裁剪（小文件毫秒级）——原实现每次全尺寸
-        解码原图，弱机上信息面板人脸列表成为磁盘风暴源。"""
+        0.6.17：优先返回 data/face_crops 持久缓存（清晰且零解码）；
+        未命中时从原图同步构建一次并写入缓存（用户点击单张脸，可接受）；
+        原图缺失时回退缩略图裁剪（仅存临时目录，不锁定低清版本）。"""
         row = self.db.conn.execute(
             "SELECT f.photo_id, f.bbox, p.file_path, p.width, p.height,"
             " p.thumbnail_path, p.thumb_width, p.thumb_height"
@@ -977,10 +1076,39 @@ class LibraryBridge(QObject):
         try:
             from PIL import Image, ImageOps
 
-            tr = self._resolve(tpath)
+            cache = self._face_crop_path(face_id)
+            # 缓存命中：直接返回（与 _face_avatar 同源，清晰版）
+            if cache.exists():
+                return QUrl.fromLocalFile(str(cache)).toString()
             crop = None
-            if tr is not None and tw and th:
-                # 缩略图分支：归一化框直接映射到缩略图像素
+            # 原图构建（写入持久缓存）
+            with Image.open(fp) as im:
+                im = ImageOps.exif_transpose(im).convert("RGB")
+                ww, hh = im.size
+                x = int(bx / scale)
+                y = int(by / scale)
+                cw = int(bw / scale)
+                ch = int(bh / scale)
+                x = max(0, min(x, ww - 1))
+                y = max(0, min(y, hh - 1))
+                cw = max(8, min(cw, ww - x))
+                ch = max(8, min(ch, hh - y))
+                mx, my = int(cw * 0.25), int(ch * 0.25)
+                x0, y0 = max(0, x - mx), max(0, y - my)
+                x1, y1 = min(ww, x + cw + mx), min(hh, y + ch + my)
+                crop = im.crop((x0, y0, x1, y1))
+            crop.thumbnail((200, 200))
+            cache.parent.mkdir(parents=True, exist_ok=True)
+            crop.save(cache, "JPEG", quality=88)
+            return QUrl.fromLocalFile(str(cache)).toString()
+        except Exception:
+            # 回退：缩略图裁剪（原图缺失/损坏），存临时目录不锁定低清版
+            try:
+                tr = self._resolve(tpath)
+                if tr is None or not tw or not th:
+                    return ""
+                from PIL import Image
+
                 with Image.open(tr) as im:
                     ww, hh = im.size
                     x = max(0, min(int(nx * ww), ww - 1))
@@ -988,28 +1116,14 @@ class LibraryBridge(QObject):
                     cw = max(8, min(int(nw * ww), ww - x))
                     ch = max(8, min(int(nh * hh), hh - y))
                     crop = im.convert("RGB").crop((x, y, x + cw, y + ch))
-            else:
-                # 回退：解码原图（EXIF 方向已处理）
-                with Image.open(fp) as im:
-                    im = ImageOps.exif_transpose(im).convert("RGB")
-                    ww, hh = im.size
-                    x = int(bx / scale)
-                    y = int(by / scale)
-                    cw = int(bw / scale)
-                    ch = int(bh / scale)
-                    x = max(0, min(x, ww - 1))
-                    y = max(0, min(y, hh - 1))
-                    cw = max(8, min(cw, ww - x))
-                    ch = max(8, min(ch, hh - y))
-                    crop = im.crop((x, y, x + cw, y + ch))
-            crop.thumbnail((160, 160))
-            cache_dir = Path(tempfile.gettempdir()) / "pm_faces"
-            cache_dir.mkdir(parents=True, exist_ok=True)
-            out = cache_dir / f"face_{face_id}.jpg"
-            crop.save(out, "JPEG", quality=85)
-            return QUrl.fromLocalFile(str(out)).toString()
-        except Exception:
-            return ""
+                crop.thumbnail((160, 160))
+                cache_dir = Path(tempfile.gettempdir()) / "pm_faces"
+                cache_dir.mkdir(parents=True, exist_ok=True)
+                out = cache_dir / f"face_{face_id}.jpg"
+                crop.save(out, "JPEG", quality=85)
+                return QUrl.fromLocalFile(str(out)).toString()
+            except Exception:
+                return ""
 
     @Slot("QVariant", result=int)
     def mergePeople(self, ids) -> int:
