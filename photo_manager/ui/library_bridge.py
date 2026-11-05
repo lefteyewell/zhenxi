@@ -492,6 +492,35 @@ class LibraryBridge(QObject):
                         "unassigned": True})
         return out
 
+    @Slot(int, result=str)
+    def personName(self, person_id: int) -> str:
+        """单个人物的显示名（0.6.18）：「管理头像」弹窗标题专用。
+
+        原实现（PersonFacesDialog.openFor）为取一个名字而全量构建
+        people() 列表（每人头像解析），7.8 万人物库上弹窗打开卡顿
+        数秒以上；本槽只做 2 次点查。未命名人物按 id 顺序编号，
+        与 _person_display_map 完全同口径；查无此人返回空串（QML
+        回退「未命名人物」）。"""
+        try:
+            pid = int(person_id)
+            if pid <= 0:
+                return ""
+            row = self.db.conn.execute(
+                "SELECT COALESCE(name,'') FROM persons WHERE id=?",
+                (pid,)).fetchone()
+            if row is None:
+                return ""
+            name = row[0].strip()
+            if name:
+                return name
+            seq = self.db.conn.execute(
+                "SELECT COUNT(*) FROM persons"
+                " WHERE id<=? AND (name IS NULL OR name='')",
+                (pid,)).fetchone()[0]
+            return _tr("人物 {p1}").format(p1=seq)
+        except Exception:
+            return ""
+
     def _face_avatar(self, pid: int, row, cached: bool = True) -> dict | None:
         """由 pid 与 (face_id, bbox, file_path, thumbnail_path, w, h, tw, th)
         行算人物头像。
@@ -1020,7 +1049,8 @@ class LibraryBridge(QObject):
             av_rows = {
                 r[0]: r[1:]
                 for r in conn.execute(
-                    f"SELECT f.person_id, f.bbox, p.file_path, p.thumbnail_path,"
+                    f"SELECT f.person_id, f.id, f.bbox, p.file_path,"
+                    f" p.thumbnail_path,"
                     f" p.width, p.height, p.thumb_width, p.thumb_height"
                     f" FROM (SELECT id, person_id, bbox, photo_id,"
                     f"  ROW_NUMBER() OVER (PARTITION BY person_id"
@@ -1034,7 +1064,7 @@ class LibraryBridge(QObject):
             b = blurs.get(pid)
             item["blurIdx"] = round(b) if b is not None else -1
             row = av_rows.get(pid)
-            av = self._face_avatar(row)
+            av = self._face_avatar(pid, row)
             if av:
                 item.update(av)
             page.append(item)
@@ -5076,7 +5106,10 @@ class LibraryBridge(QObject):
                 "personId": person_id if person_id else 0,
                 "personName": names.get(person_id, "") if person_id else "",
             }
-            av = self._face_avatar((bbox, fpath, tpath, w, h, tw, th))
+            av = self._face_avatar(
+                person_id or 0,
+                (fid, bbox, fpath, tpath, w, h, tw, th),
+                cached=False)
             if av:
                 item.update(av)
             out.append(item)

@@ -48,10 +48,9 @@ Dialog {
 
     function openFor(pid) {
         root.personId = pid
-        root.personName = ""
-        var ppl = LibraryBridge.people()
-        for (var i = 0; i < ppl.length; ++i)
-            if (ppl[i].id === pid) { root.personName = ppl[i].name || ""; break }
+        /* 0.6.18：单点查 personName(pid)——原实现为取标题而全量构建
+           people() 列表（7.8 万人物库上弹窗打开卡顿数秒以上） */
+        root.personName = LibraryBridge.personName(pid)
         root.open()
     }
 
@@ -421,7 +420,14 @@ Dialog {
                 placeholderText: I18n.tr("搜索人物名…")
                 font.family: Theme.fontFamily
                 font.pixelSize: 12
-                onTextChanged: picker.rebuildTarget()
+                /* 0.6.18：250ms 防抖（与主搜索框同款）——7.8 万人物库上
+                   peoplePaged 每次都做全表扫描，逐键直调会连续卡顿 */
+                onTextChanged: targetDebounce.restart()
+            }
+            Timer {
+                id: targetDebounce
+                interval: 250
+                onTriggered: picker.rebuildTarget()
             }
             ListView {
                 id: targetList

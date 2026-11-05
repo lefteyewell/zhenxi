@@ -72,6 +72,23 @@ Popup {
             font.pixelSize: 11
             color: Theme.textDim
         }
+        /* 0.6.18：服务器端搜索（peoplePaged）——原实现全量 people() 逐条
+           append 进 ListModel，7.8 万人物库上打开即卡死 */
+        TextField {
+            id: moveFilter
+            Layout.fillWidth: true
+            placeholderText: I18n.tr("搜索人物名…")
+            font.family: Theme.fontFamily
+            font.pixelSize: 12
+            /* 0.6.18：250ms 防抖（与主搜索框同款）——7.8 万人物库上
+               peoplePaged 每次都做全表扫描，逐键直调会连续卡顿 */
+            onTextChanged: moveDebounce.restart()
+        }
+        Timer {
+            id: moveDebounce
+            interval: 250
+            onTriggered: root.refresh()
+        }
         Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: 240
@@ -171,9 +188,12 @@ Popup {
 
     function refresh() {
         itemsModel.clear()
-        var arr = LibraryBridge.people()
-        for (var i = 0; i < arr.length; ++i) {
-            var it = arr[i]
+        /* 0.6.18：peoplePaged 前 200 条（按照片数降序，支持服务器端
+           搜索）——原全量 people() 在 7.8 万人物库上打开即卡死 */
+        var r = LibraryBridge.peoplePaged(0, 200, moveFilter.text.trim())
+        for (var i = 0; i < r.items.length; ++i) {
+            var it = r.items[i]
+            if (it.unassigned) continue
             if (it.id === root.currentPersonId) continue
             itemsModel.append({ name: it.name, id: it.id, photoCount: it.photoCount })
         }

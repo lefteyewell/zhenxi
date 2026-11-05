@@ -106,6 +106,41 @@ class TestPeople(_TempDB):
         self.assertEqual(got[a], "张三")
         self.assertEqual(got[b], "人物 1")
 
+    def test_people_paged_pagination(self):
+        """0.6.15 人物列表分页 + 0.6.17 代表脸行含 face_id。
+
+        回归：0.6.17 头像缓存改签名 (row)→(pid, row) 后 peoplePaged 两处
+        调用/查询未同步（槽内 TypeError 被 Qt 吞掉 → 人物页空白），
+        people() 的旧测试覆盖不到此路径，故单独直调 peoplePaged。"""
+        pids = [self.bridge.newPerson("") for _ in range(5)]
+        for i, p in enumerate(pids):
+            self._add_face(self.pids[i % len(self.pids)], p)
+        r = self.bridge.peoplePaged(0, 2, "")
+        self.assertEqual(r["total"], 5)
+        self.assertEqual(len(r["items"]), 2)
+        self.assertEqual(r["items"][0]["id"], pids[0])
+        self.assertEqual(r["items"][0]["photoCount"], 1)
+        self.assertEqual(len(self.bridge.peoplePaged(2, 2, "")["items"]), 2)
+        self.assertEqual(len(self.bridge.peoplePaged(4, 2, "")["items"]), 1)
+        # 服务器端按名搜索（自动编号名）
+        r = self.bridge.peoplePaged(0, 300, "人物 3")
+        self.assertEqual(r["total"], 1)
+        self.assertEqual(r["items"][0]["id"], pids[2])
+
+    def test_person_name_single_lookup(self):
+        """0.6.18 单点查 personName(pid)：编号/人名/查无此人，与
+        people() 显示名同口径。回归背景：管理头像弹窗 openFor 原为取
+        标题而全量构建 people()，7.8 万人物库上卡顿数秒。"""
+        a = self.bridge.newPerson("")   # name=NULL
+        b = self.bridge.newPerson("")   # name=NULL
+        self.assertEqual(self.bridge.personName(a), "人物 1")
+        self.assertEqual(self.bridge.personName(b), "人物 2")
+        self.assertTrue(self.bridge.renamePerson(a, "张三"))
+        self.assertEqual(self.bridge.personName(a), "张三")
+        self.assertEqual(self.bridge.personName(b), "人物 1")
+        self.assertEqual(self.bridge.personName(0), "")      # 未命名簇
+        self.assertEqual(self.bridge.personName(999999), "")  # 查无此人
+
     def test_photofaces_shows_numbered_name(self):
         """信息面板人脸区的 personName 与人物页编号一致（0.5.23）。"""
         pid_person = self.bridge.newPerson("")
