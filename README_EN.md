@@ -5,17 +5,22 @@ EXIF / folders / arbitrary combinations), thumbnails and full-size viewing,
 batch export at common resolutions — **the app never deletes your original
 files**.
 
-## Latest release v0.6.14 (2026-10-30)
+## Latest release v0.6.19 (2026-11-05)
 
 > 📥 Download: [Releases page](https://github.com/lefteyewell/zhenxi/releases) ｜
 > 📋 All version changes: [CHANGELOG.md](CHANGELOG.md)
 
-- **Fixed**: large-person-library performance — person-page avatars now use
-  thumbnails (previously each avatar decoded a full-size original, causing
-  disk storms and UI freezes with tens of thousands of persons); avatar
-  queries fetched in one pass; face cropping accelerated
-- **New**: "Practical tips" section in the in-app help; multi-select "delete
-  persons" on the People page; library roots can be added by typing a path
+- **Fixed**: People page showing "no data" on large person libraries (a
+  call-signature mismatch left over from the 0.6.17 avatar-cache rework made
+  the paged query fail silently)
+- **Improved**: dialogs & search on large person libraries — the "manage
+  avatars" dialog now does a single point lookup instead of building the full
+  person list; the "move out to person" dialog loads pages with a server-side
+  name search; all person search boxes debounce at 250 ms
+- **New**: a plain-text UPGRADE note ships inside every package (how to keep
+  your `data/` when upgrading over an existing install)
+- **Fixed**: the Kylin tarball is now packed inside Linux, so the executable
+  bit is preserved — it runs right after extraction, no manual chmod needed
 - **Fixed**: person "merge into" dialog search was not wired; merge pickers
   now have search
 
