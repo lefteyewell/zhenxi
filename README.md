@@ -39,8 +39,10 @@
 **普通用户**：到 [Releases 页面](https://github.com/lefteyewell/zhenxi/releases) 下载对应平台的安装包
 （Windows / Linux x64 / 银河麒麟 aarch64），AI 模型已全部内置，解压即用。
 
-**从源码构建的开发者**：除源码外还需下载 3 个离线模型文件（CLIP 编码器 ×2 + 离线地理编码库），
-见 [离线模型 models-v1](https://github.com/lefteyewell/zhenxi/releases/tag/models-v1) 的下载表与放置路径说明。
+**从源码构建的开发者**：除源码外还需 3 个离线模型文件（CLIP 编码器 ×2 + 离线地理编码库），
+`python tools/fetch_models.py` 一键下载（带 sha256 校验），或手动从
+[离线模型 models-v1](https://github.com/lefteyewell/zhenxi/releases/tag/models-v1) 获取；
+完整构建步骤见 [docs/BUILDING.md](docs/BUILDING.md)。
 
 **国内下载加速**：GitHub 直连较慢时，可在下载链接前加镜像前缀，例如：
 
@@ -120,16 +122,20 @@ photo_manager/          应用主包
   ui/qml/               QML 界面（theme 主题 / components 组件 / pages 页面）
 tools/                  打包(build_win.ps1)、验收(gui_check/accept_real/acceptance)、图集与基准生成、模型获取、aarch64 容器/子系统验证、分发裁剪(trim_dist)
 tests/                  smoke_ui + test_pipeline/cluster/faces/search/stage3/people_tags/autotag/c3_features
-docs/                   开发文档（DEVELOPMENT.md）+ 依赖说明（DEPENDENCIES.md）+ GPLv3 中文参考译文
+docs/                   开发文档（DEVELOPMENT.md）+ 打包指南（BUILDING.md）+ 依赖说明（DEPENDENCIES.md）+ GPLv3 中文参考译文
 ```
 
 详见 **[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)**：架构分层、数据模型、LibraryBridge 桥接 API、QML 结构、测试与构建、开发约定（popupGate 门禁、无删除红线、PopupDragHandle 用 `var` target 等易踩坑）。
 
 ## 构建与打包
 
-**Windows**：`pip install -r requirements.txt` 后 `python tools\build_win.ps1`（按 `photo_manager.spec` 打包并 `--smoke` 自检，产物 `dist\PhotoManager\PhotoManager.exe`）。
+三平台完整步骤见 **[docs/BUILDING.md](docs/BUILDING.md)**（与 CI `.github/workflows/release.yml` 一一对应，照抄即可得到与官方 Release 相同的包）。
 
-**银河麒麟 V10 (aarch64)**：经 `tools/setup_docker.ps1` / `setup_wsl*.ps1` 准备离线环境，在 aarch64 容器内执行 `tools/arm/build_kylin.sh` 打包（CI 亦按此流程自动构建，见 `.github/workflows/release.yml`）。人脸模型已随仓库内置 `models/`；CLIP 与地理编码库从 [models-v1 Release](https://github.com/lefteyewell/zhenxi/releases/tag/models-v1) 下载后放入对应目录。
+**Windows（最简）**：`pip install -r requirements.txt` 后 `python tools\build_win.ps1`（按 `photo_manager.spec` 打包并 `--smoke` 自检，产物 `dist\PhotoManager\PhotoManager.exe`）。
+
+**银河麒麟 V10 (aarch64)**：无需真机，任意装了 Docker 的 x86_64 机器即可交叉构建——用 `tools/arm/kylin.Dockerfile`（glibc 2.31 底座）建镜像，容器内 PyInstaller 打包 + 运行库闭包收集 + GLIBC 预检 + 容器内打 tar，命令见 BUILDING.md 第 3 节（CI 亦按此流程自动构建）。注意旧脚本 `tools/arm/build_kylin.sh` 缺少关键闭包步骤，仅作历史参考，勿用于出货。
+
+**模型准备**：人脸模型已随仓库内置；CLIP 与 geo.sqlite 从 [models-v1 Release](https://github.com/lefteyewell/zhenxi/releases/tag/models-v1) 获取，或直接 `python tools/fetch_models.py` 一键下载（带 sha256 校验）。
 
 ## 测试
 

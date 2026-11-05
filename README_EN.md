@@ -128,3 +128,21 @@ python -m unittest discover -s tests -p "test_*.py"
 
 See [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md) for packaging notes
 (Windows PyInstaller / Kylin aarch64 Docker, glibc constraints).
+
+### Building from source
+
+Full three-platform build instructions: **[docs/BUILDING.md](docs/BUILDING.md)**
+(mirrors CI `.github/workflows/release.yml` step by step — following it yields
+packages identical to the official Release).
+
+```powershell
+# Windows (simplest)
+pip install -r requirements.txt
+python tools\fetch_models.py     # downloads CLIP x2 + geo.sqlite (~750MB, sha256-verified)
+python tools\build_win.ps1       # PyInstaller + smoke self-test -> dist\PhotoManager\
+```
+
+Kylin V10 aarch64 needs no ARM hardware — any Docker-capable x86_64 machine
+cross-builds via `tools/arm/kylin.Dockerfile` (glibc 2.31 base). The legacy
+`tools/arm/build_kylin.sh` misses critical runtime-library closure steps and
+must not be used for shipping.

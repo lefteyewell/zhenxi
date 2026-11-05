@@ -14,7 +14,17 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-"""下载人脸/OCR 模型并校验 sha256（离线打包用）。"""
+"""下载 AI 模型并校验（离线打包用）。
+
+覆盖两类模型：
+  1. 人脸模型（YuNet / SFace）：多源回退下载，sha256 校验
+  2. CLIP 编码器 ×2 + 离线地理编码库 geo.sqlite：来自官方开源仓库的
+     models-v1 Release（约 750MB，体积原因不入 git），sha256 校验
+
+用法：python tools/fetch_models.py            # 全部下载（已存在的自动跳过）
+     python tools/fetch_models.py --skip-release   # 只补人脸/OCR 模型
+详细打包步骤见 docs/BUILDING.md。
+"""
 from __future__ import annotations
 
 import argparse
@@ -42,6 +52,35 @@ MODELS = {
         "urls": [
             "https://media.githubusercontent.com/media/opencv/opencv_zoo/main/models/face_recognition_sface/face_recognition_sface_2021dec.onnx",
             "https://hf-mirror.com/opencv/face_recognition_sface/resolve/main/face_recognition_sface_2021dec.onnx",
+        ],
+    },
+}
+
+# 大体积模型：来自开源仓库 models-v1 Release（不入 git，见 docs/BUILDING.md）
+# sha256 与体积为发布时登记值，下载后强校验，防止镜像/截断导致的坏文件
+RELEASE_REPO = "lefteyewell/zhenxi"
+RELEASE_TAG = "models-v1"
+
+RELEASE_ASSETS = {
+    "clip/vit-b-16.img.fp32.onnx": {
+        "size": 349217747,
+        "sha256": "92b623429f2ee08dc20d2f7f64e930576b94a7db8c306950f67dc64d0b7c7dcf",
+        "urls": [
+            f"https://github.com/{RELEASE_REPO}/releases/download/{RELEASE_TAG}/vit-b-16.img.fp32.onnx",
+        ],
+    },
+    "clip/vit-b-16.txt.fp32.onnx": {
+        "size": 411325342,
+        "sha256": "7218d930ad4bac927331840716ea3bb25c9ba5e5477745546e86cd8b9d4e1712",
+        "urls": [
+            f"https://github.com/{RELEASE_REPO}/releases/download/{RELEASE_TAG}/vit-b-16.txt.fp32.onnx",
+        ],
+    },
+    "geo/geo.sqlite": {
+        "size": 24440832,
+        "sha256": "3b078b4d4498044faa96ec8da7c53e716d96318281195b5a82e1daee2b6747d4",
+        "urls": [
+            f"https://github.com/{RELEASE_REPO}/releases/download/{RELEASE_TAG}/geo.sqlite",
         ],
     },
 }
@@ -80,19 +119,26 @@ def download(name: str, info: dict, out: Path) -> bool:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="下载 AI 模型（带 sha256 校验与镜像回退）")
-    ap.add_argument("--models", default=str(MODELS_DIR), help="模型输出目录")
+    ap = argparse.ArgumentParser(description="下载 AI 模型（人脸/CLIP/geo，带 sha256 校验）")
+    ap.add_argument("--models", default=str(MODELS_DIR), help="模型输出目录（根）")
+    ap.add_argument("--skip-release", action="store_true",
+                    help="跳过 models-v1 大模型（CLIP/geo），只补人脸/OCR 模型")
     args = ap.parse_args()
     out_dir = Path(args.models)
     out_dir.mkdir(parents=True, exist_ok=True)
     ok = True
-    for name, info in MODELS.items():
-        out = out_dir / name
-        if out.exists() and out.stat().st_size == info["size"] and sha256_of(out) == info["sha256"]:
-            print(f"已存在且校验通过: {name}")
-            continue
-        if not download(name, info, out):
-            ok = False
+    groups: list[dict] = [MODELS]
+    if not args.skip_release:
+        groups.append(RELEASE_ASSETS)
+    for group in groups:
+        for rel, info in group.items():
+            out = out_dir / rel
+            out.parent.mkdir(parents=True, exist_ok=True)
+            if out.exists() and out.stat().st_size == info["size"] and sha256_of(out) == info["sha256"]:
+                print(f"已存在且校验通过: {rel}")
+                continue
+            if not download(rel, info, out):
+                ok = False
     return 0 if ok else 1
 
 

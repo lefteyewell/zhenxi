@@ -213,9 +213,10 @@ python tools\build_win.ps1        # 1) 装 PyInstaller 2) 按 photo_manager.spec
 打包规格在仓库根 `photo_manager.spec`（PyInstaller）；`tools/trim_dist.py` 用于分发裁剪。
 
 **银河麒麟 V10（aarch64 / 飞腾·鲲鹏）**
-通过 `tools/setup_docker.ps1` / `setup_wsl*.ps1` 准备容器或子系统，在 aarch64 容器内执行 `tools/arm/build_kylin.sh` 打包（CI 按 `.github/workflows/release.yml` 自动构建）。
+无需 aarch64 真机：任意装了 Docker 的 x86_64 机器交叉构建。完整命令（建镜像 → 打包 → 闭包收集 → 冒烟 → GLIBC 预检 → 容器内打 tar）见 **[docs/BUILDING.md](BUILDING.md) 第 3 节**，与 CI（`.github/workflows/release.yml`）一一对应。
+底座必须为 bullseye（glibc 2.31，`tools/arm/kylin.Dockerfile`）；旧脚本 `tools/arm/build_kylin.sh` 缺闭包收集等关键步骤，勿用于出货。
 
-**模型准备**：人脸模型（YuNet / SFace）已随仓库内置 `models/`；CLIP 与 geo.sqlite 从 [models-v1 Release](https://github.com/lefteyewell/zhenxi/releases/tag/models-v1) 下载后放入对应目录（开发环境 `models_dir()` 默认取 `项目根/models`，打包后取 `_internal/models`）。
+**模型准备**：人脸模型（YuNet / SFace）已随仓库内置 `models/`；CLIP 与 geo.sqlite 从 [models-v1 Release](https://github.com/lefteyewell/zhenxi/releases/tag/models-v1) 下载，或 `python tools/fetch_models.py` 一键获取（带 sha256 校验；放置路径见该脚本与 BUILDING.md。开发环境 `models_dir()` 默认取 `项目根/models`，打包后取 `_internal/models`）。
 
 ---
 
