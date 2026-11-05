@@ -162,6 +162,8 @@ jobs:
         run: |
           VER=$(python -c "import re;print(re.search(r'APP_VERSION\s*=\s*\"([^\"]+)\"', open('photo_manager/__init__.py', encoding='utf-8').read()).group(1))")
           echo "version=$VER" >> "$GITHUB_OUTPUT"
+          # 冒烟可能在包目录生成 data/（测试库+日志），打 tar 前清除（0.6.18 教训）
+          rm -rf dist/PhotoManager/data
           tar -czf "PhotoManager-${VER}-linux64.tar.gz" -C dist PhotoManager
 
       - uses: actions/upload-artifact@v4
@@ -253,11 +255,33 @@ jobs:
             -e QT_QPA_PLATFORM=offscreen \
             pm-kylin bash -c 'timeout 600 ./PhotoManager --smoke && echo SMOKE_OK'
 
+      # GLIBC 出货预检（0.6.17 事故固化规则）：核心库版本要求必须 ≤ 2.31（麒麟 V10 上限）
+      # 冒烟本身跑在 bullseye(2.31) 容器里已是间接校验，此步为显式保险丝，防底座镜像被改后静默回归
+      - name: GLIBC 出货预检
+        run: |
+          docker run --rm --platform linux/arm64 \
+            -v "$PWD":/work -w /work/dist_arm/PhotoManager \
+            pm-kylin bash -c '
+              set -e
+              for f in _internal/PySide6/QtCore.abi3.so _internal/PySide6/QtQml.abi3.so \
+                       _internal/libxkbcommon.so.0 _internal/libnsl.so.2; do
+                v=$(grep -aoE "GLIBC_[0-9.]+" "$f" | sort -Vu | tail -1)
+                req=${v#GLIBC_}
+                echo "$f: $v"
+                if [ "$(printf "2.31\n%s\n" "$req" | sort -V | tail -1)" != "2.31" ]; then
+                  echo "GLIBC 超限：$f 要求 $v（> 2.31）"; exit 1
+                fi
+              done
+              echo GLIBC_PRECHECK_OK
+            '
+
       - name: 读取版本号并打 tar 包
         id: ver
         run: |
           VER=$(python3 -c "import re;print(re.search(r'APP_VERSION\s*=\s*\"([^\"]+)\"', open('photo_manager/__init__.py', encoding='utf-8').read()).group(1))")
           echo "version=$VER" >> "$GITHUB_OUTPUT"
+          # 冒烟会在包目录生成 data/（测试库+日志），打 tar 前必须清除（0.6.18 教训）
+          rm -rf dist_arm/PhotoManager/data
           tar -czf "PhotoManager-${VER}-kylin-aarch64.tar.gz" -C dist_arm PhotoManager
           du -sh "PhotoManager-${VER}-kylin-aarch64.tar.gz"
 
