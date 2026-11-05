@@ -135,7 +135,7 @@ Popup {
             Text {
                 Layout.alignment: Qt.AlignHCenter
                 Layout.topMargin: 2
-                text: I18n.tr("<a href='https://github.com/lefteyewell/photo-management'>项目主页 / 源码：github.com/lefteyewell/photo-management</a>")
+                text: I18n.tr("<a href='https://github.com/lefteyewell/zhenxi'>项目主页 / 源码：github.com/lefteyewell/zhenxi</a>")
                 font.family: Theme.fontFamily
                 font.pixelSize: 10
                 color: Theme.primary
@@ -144,7 +144,7 @@ Popup {
                     anchors.fill: parent
                     cursorShape: Qt.PointingHandCursor
                     onClicked: Qt.openUrlExternally(
-                        "https://github.com/lefteyewell/photo-management")
+                        "https://github.com/lefteyewell/zhenxi")
                 }
             }
         }
