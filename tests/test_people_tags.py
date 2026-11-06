@@ -78,6 +78,28 @@ class TestPeople(_TempDB):
         self.assertIsNotNone(row)
         self.assertIsNone(row[0])
 
+    def test_person_photos_hidden_excluded_and_no_correlated_exists(self):
+        """0.6.20 personPhotos 改 IN 物化：真机规模下 EXISTS 版查询计划是
+        「每张照片按 idx_faces_person 扫该人物全部脸」（脸越多越慢，分钟级），
+        IN 版 50~145ms。此测试锁两件事：①hidden=1 的脸不带入照片；
+        ②WHERE 形状必须是 IN (SELECT … FROM faces …) 而非 EXISTS 关联子查询。"""
+        pid = self.bridge.newPerson("张三")
+        self._add_face(self.pids[0], pid)
+        self._add_face(self.pids[1], pid)
+        self._add_face(self.pids[2], pid)          # 正常脸
+        c = self.db.conn
+        fid = c.execute("SELECT id FROM faces WHERE photo_id=?",
+                        (self.pids[2],)).fetchone()[0]
+        c.execute("UPDATE faces SET hidden=1 WHERE id=?", (fid,))
+        c.commit()
+        got = {p["id"] for p in self.bridge.personPhotos(pid, 0, 100)}
+        self.assertEqual(got, {self.pids[0], self.pids[1]})
+        # 形状守卫：防止回退成 EXISTS 关联子查询（查询计划灾难）
+        import inspect
+        src = inspect.getsource(type(self.bridge).personPhotos)
+        self.assertIn("IN (SELECT", src)
+        self.assertNotIn("EXISTS (SELECT", src)
+
     def test_rename_person(self):
         pid = self.bridge.newPerson("未命名")
         self.assertTrue(self.bridge.renamePerson(pid, "张三"))
@@ -283,6 +305,229 @@ class TestTags(_TempDB):
         tags = self.bridge.tags()
         counts = [t["photoCount"] for t in tags]
         self.assertEqual(counts, sorted(counts, reverse=True))
+
+
+class TestDupPersons(_TempDB):
+    """0.6.20 疑似重复人物（阶段一 Top-N 代表脸余弦）。"""
+
+    def setUp(self):
+        super().setUp()
+        import numpy as np
+
+        self.np = np
+        self.bridge._face_threshold = 0.6  # 固定阈值，摆脱本机 QSettings
+
+    def _v(self, cos_target, ref=0):
+        """构造与第 ref 个单位向量余弦为 cos_target 的 128 维描述子。"""
+        np = self.np
+        v = np.zeros(128, dtype=np.float32)
+        v[ref] = 1.0
+        w = np.zeros(128, dtype=np.float32)
+        w[ref] = np.cos(np.arccos(min(1.0, cos_target)))
+        w[ref + 1] = np.sin(np.arccos(min(1.0, cos_target)))
+        return w
+
+    def _add_person_with_faces(self, descriptor, photo_ids):
+        import json
+
+        c = self.db.conn
+        c.execute("INSERT INTO persons(name) VALUES (NULL)")
+        pid = c.execute("SELECT last_insert_rowid()").fetchone()[0]
+        for photo_id in photo_ids:
+            c.execute(
+                "INSERT INTO faces(photo_id, bbox, descriptor, score, person_id)"
+                " VALUES (?,?,?,?,?)",
+                (photo_id, json.dumps([0, 0, 10, 10]),
+                 descriptor.tobytes(), 0.9, pid))
+        c.commit()
+        return pid
+
+    def test_scan_finds_band_pair_only(self):
+        pa = self._add_person_with_faces(self._v(1.0), self.pids[:2])
+        pb = self._add_person_with_faces(self._v(0.42), self.pids[:2])
+        pc = self._add_person_with_faces(self._v(0.10), self.pids[:2])
+        n = self.bridge._dup_scan_now()
+        self.assertEqual(n, 1, "只有 0.42（带内）成为候选")
+        cands = self.bridge.dupCandidates()
+        self.assertEqual(len(cands), 1)
+        pair = cands[0]
+        self.assertEqual({pair["a"], pair["b"]}, {pa, pb})
+        self.assertEqual(pair["sim"], 42)
+        self.assertGreaterEqual(pair["aCount"], pair["bCount"])
+        self.assertTrue(pair["aName"] and pair["bName"])
+        # 已命名人物不参与
+        self.assertTrue(self.bridge.renamePerson(pc, "有名字的人"))
+        self.bridge.dupIgnore(pa, pb)
+        self.db.conn.execute("UPDATE person_dup_candidates SET ignored=0")
+        self.db.conn.commit()
+        self.bridge._dup_scan_now()
+        # pc 已命名：即便解除忽略也不应出现在候选里
+        for r in self.bridge.dupCandidates():
+            self.assertNotIn(pc, (r["a"], r["b"]))
+
+    def test_ignore_persists_across_rescan(self):
+        pa = self._add_person_with_faces(self._v(1.0), self.pids[:2])
+        pb = self._add_person_with_faces(self._v(0.42), self.pids[:2])
+        self.assertEqual(self.bridge._dup_scan_now(), 1)
+        self.bridge.dupIgnore(pa, pb)
+        self.assertEqual(self.bridge.dupCandidates(), [])
+        self.assertEqual(self.bridge._dup_scan_now(), 0, "重扫应跳过已忽略对")
+        self.assertEqual(self.bridge.dupCandidates(), [])
+
+    def test_merge_cleans_candidates(self):
+        pa = self._add_person_with_faces(self._v(1.0), self.pids[:2])
+        pb = self._add_person_with_faces(self._v(0.42), self.pids[:2])
+        self.assertEqual(self.bridge._dup_scan_now(), 1)
+        # 合并（src=照片少的一方按 UI 语义；此处直接并 pa→pb）
+        self.assertEqual(self.bridge.mergePersons(pa, pb), 1)
+        self.assertEqual(self.bridge.dupCandidates(), [],
+                         "引用已删除 src 的候选应被清掉")
+
+    def test_anchor_scan_per_person(self):
+        """0.6.21 两步式：以单个人物为锚点扫疑似重复。"""
+        pa = self._add_person_with_faces(self._v(1.0), self.pids[:2])
+        pb = self._add_person_with_faces(self._v(0.42), self.pids[:2])
+        pc = self._add_person_with_faces(self._v(0.10), self.pids[:2])
+        # 锚点=pa：只与 pa 比较，仅 pb 落带内
+        self.assertEqual(self.bridge._dup_scan_anchor(pa), 1)
+        cands = self.bridge.dupCandidates()
+        self.assertEqual(len(cands), 1)
+        self.assertEqual({cands[0]["a"], cands[0]["b"]}, {pa, pb})
+        # 锚点扫描不清其他候选（与全库扫 DELETE-then-INSERT 不同）
+        self.assertEqual(self.bridge._dup_scan_anchor(pc), 0)
+        self.assertEqual(len(self.bridge.dupCandidates()), 1)
+        # 锚点无可用代表脸 → -1
+        self.assertEqual(self.bridge._dup_scan_anchor(999999), -1)
+
+
+class TestFaceSearchViews(_TempDB):
+    """0.6.21 人脸搜图结果双视图：平铺（照片最高分）/ 按人物分组。"""
+
+    RES = [
+        (1, 0.90, 5),   # 照片1 经人物5 的脸命中
+        (2, 0.80, 5),
+        (3, 0.70, 0),   # 未指派人物
+        (1, 0.60, 7),   # 照片1 经人物7 的另一张脸命中（应同时出现在两组合）
+        (4, 0.50, 0),
+    ]
+
+    def test_flat_takes_best_per_photo(self):
+        flat = LibraryBridge._face_search_flat(self.RES)
+        self.assertEqual(flat, [(1, 0.90), (2, 0.80), (3, 0.70), (4, 0.50)])
+
+    def test_grouped_order_titles_and_cross_person(self):
+        groups = LibraryBridge._face_search_grouped(self.RES, {5: "小明"})
+        # 组间按组内最高相似度降序：5(0.9) → 0(0.7) → 7(0.6)
+        self.assertEqual([g["personId"] for g in groups], [5, 0, 7])
+        self.assertEqual([g["title"] for g in groups],
+                         ["小明", "未指派人物", "人物 #7"])
+        self.assertEqual([g["count"] for g in groups], [2, 2, 1])
+        self.assertEqual([g["best"] for g in groups], [90, 70, 60])
+        # 组内按相似度降序
+        self.assertEqual(groups[0]["photos"], [(1, 0.90), (2, 0.80)])
+        self.assertEqual(groups[1]["photos"], [(3, 0.70), (4, 0.50)])
+        # 同一照片经不同人物命中 → 各组各出现一次
+        pids5 = [p for p, _ in groups[0]["photos"]]
+        pids7 = [p for p, _ in groups[2]["photos"]]
+        self.assertIn(1, pids5)
+        self.assertIn(1, pids7)
+
+    def test_group_title_fallbacks(self):
+        self.assertEqual(
+            LibraryBridge._face_group_title(0, {}), "未指派人物")
+        self.assertEqual(
+            LibraryBridge._face_group_title(9, {}), "人物 #9")
+        self.assertEqual(
+            LibraryBridge._face_group_title(5, {5: "张三"}), "张三")
+
+
+class TestFaceCaches(_TempDB):
+    """0.6.20 头像缓存链路：_fcq 9 参修复 + 管理头像逐脸 HQ 缓存。"""
+
+    def _add_real_photo(self, name, ext=".jpg"):
+        from PIL import Image
+
+        path = os.path.join(self.tmp.name, name)
+        # 文件内容不影响断言（HQ 跳过只看扩展名），显式 JPEG 格式落盘
+        Image.new("RGB", (400, 300), (80, 120, 160)).save(path, "JPEG")
+        c = self.db.conn
+        c.execute(
+            "INSERT INTO photos(file_path, file_name, folder_path, ext,"
+            " file_size, file_mtime, taken_at, sort_key, status, width, height)"
+            " VALUES (?,?,?,?,?,?,?,?,'indexed',400,300)",
+            (path, name, self.tmp.name, ext, os.path.getsize(path),
+             100.0, "2025-03-02T10:00:00", "2025-03-02T10:00:00"))
+        c.commit()
+        return c.execute("SELECT id FROM photos WHERE file_name=?",
+                         (name,)).fetchone()[0]
+
+    def _wait_for(self, predicate, timeout=15.0):
+        import time
+
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if predicate():
+                return True
+            time.sleep(0.2)
+        return False
+
+    def test_person_avatar_cache_actually_builds(self):
+        """0.6.20 回归：_fcq 曾只入队 (pid, face_id) 二元组，worker 9 参
+        调用 TypeError 被吞——原图缓存从未构建成功过（含 time 未导入）。"""
+        import json
+
+        photo_id = self._add_real_photo("r1.jpg")
+        face_id = self.db.conn.execute(
+            "INSERT INTO faces(photo_id, bbox, descriptor, score, person_id)"
+            " VALUES (?,?,?,?,?)",
+            (photo_id, json.dumps([10, 10, 50, 50]), b"\x00" * 128, 0.9, None),
+        ).lastrowid
+        self.db.conn.commit()
+        self.bridge._fc_seen.clear()
+        av = self.bridge._face_avatar(
+            3, (face_id, json.dumps([10, 10, 50, 50]),
+                os.path.join(self.tmp.name, "r1.jpg"), "", 400, 300, 0, 0))
+        self.assertIsNotNone(av)
+        cache = (os.path.join(self.tmp.name, "face_crops", "p0003",
+                              f"p3_f{face_id}.jpg"))
+        self.assertTrue(self._wait_for(lambda: os.path.exists(cache)),
+                        "人物头像原图缓存应真正落盘")
+
+    def test_face_hq_cache_builds_and_lru_path(self):
+        import json
+
+        photo_id = self._add_real_photo("r2.jpg")
+        face_id = self.db.conn.execute(
+            "INSERT INTO faces(photo_id, bbox, descriptor, score, person_id)"
+            " VALUES (?,?,?,?,?)",
+            (photo_id, json.dumps([10, 10, 50, 50]), b"\x00" * 128, 0.9, None),
+        ).lastrowid
+        self.db.conn.commit()
+        self.assertIsNone(self.bridge.faceAvatarHq(face_id), "未构建前应返回 None")
+        self.bridge._hq_seen.clear()
+        self.bridge.requestFaceHq(face_id)
+        cache = (os.path.join(self.tmp.name, "face_crops_hq", "f%04d" % (face_id % 256),
+                              f"f{face_id}.jpg"))
+        self.assertTrue(self._wait_for(lambda: os.path.exists(cache)),
+                        "HQ 裁剪应后台落盘")
+        hq = self.bridge.faceAvatarHq(face_id)
+        self.assertIsNotNone(hq)
+        self.assertGreater(hq["w"], 0)
+        self.assertGreater(hq["h"], 0)
+        self.assertIsNone(self.bridge.faceAvatarHq(face_id + 999))
+        # RAW 扩展名不进队列（PIL 解不开，保持缩略图裁剪）
+        photo3 = self._add_real_photo("r3.nef", ext=".nef")
+        face3 = self.db.conn.execute(
+            "INSERT INTO faces(photo_id, bbox, descriptor, score, person_id)"
+            " VALUES (?,?,?,?,?)",
+            (photo3, json.dumps([0, 0, 10, 10]), b"\x00" * 128, 0.9, None),
+        ).lastrowid
+        self.db.conn.commit()
+        self.bridge._hq_seen.clear()
+        self.bridge.requestFaceHq(face3)
+        self._wait_for(lambda: False, timeout=1.0)  # 给误建留时间窗
+        self.assertIsNone(self.bridge.faceAvatarHq(face3),
+                          "RAW 脸不应构建 HQ 缓存")
 
 
 class TestTimeline(_TempDB):

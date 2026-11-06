@@ -138,7 +138,8 @@ Popup {
                 text: I18n.tr("<a href='https://github.com/lefteyewell/zhenxi'>项目主页 / 源码：github.com/lefteyewell/zhenxi</a>")
                 font.family: Theme.fontFamily
                 font.pixelSize: 10
-                color: Theme.primary
+                /* 0.6.21：深色模式下 primary 与背景对比不足，改亮色变体 */
+                color: Theme.dark ? "#7EBCF9" : Theme.primary
                 horizontalAlignment: Text.AlignHCenter
                 MouseArea {
                     anchors.fill: parent

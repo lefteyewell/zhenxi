@@ -198,6 +198,7 @@ Item {
                         visible: root.tab === 0
                         Menu {
                             id: trashSortMenu
+                            popupType: Popup.Item   /* 0.6.21：native Menu 在麒麟上点击项无效 */
                             MenuItem { text: I18n.tr("默认顺序"); checkable: true; checked: root.trashSortMode === 0
                                        onTriggered: { root.trashSortMode = 0; root.refresh() } }
                             MenuItem { text: I18n.tr("按文件夹名（A→Z）"); checkable: true; checked: root.trashSortMode === 1

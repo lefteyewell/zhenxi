@@ -27,6 +27,7 @@ Item {
     property string label: ""
     property bool active: false
     property string badge: ""
+    property string tooltip: label   /* 0.6.21：悬停气泡（默认显示导航名） */
 
     signal clicked()
 
@@ -34,6 +35,15 @@ Item {
     implicitWidth: 200
     Layout.fillWidth: true
     Layout.preferredWidth: 200
+
+    HoverHandler {
+        id: navHover
+        cursorShape: Qt.PointingHandCursor
+    }
+    ToolTip.visible: navHover.hovered && tooltip.length > 0
+    ToolTip.delay: 550
+    ToolTip.timeout: 4000
+    ToolTip.text: tooltip
 
     Rectangle {
         id: indicator

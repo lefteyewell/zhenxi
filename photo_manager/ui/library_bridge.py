@@ -12,6 +12,7 @@ import sys
 import tempfile
 import threading
 import queue
+import time
 from concurrent.futures.process import BrokenProcessPool
 from pathlib import Path
 
@@ -93,11 +94,16 @@ class LibraryBridge(QObject):
     galleryGroupViewChanged = Signal(bool)  # 中间栏「分组视图」开关（0.5.55）
     integrityFinished = Signal(str)  # 完整性校验完成（JSON 摘要）
     similarFinished = Signal(str)  # 以图搜图完成（JSON 摘要）
+    uploadFacesDetected = Signal(str)  # 上传人脸搜图：检测完成（JSON：path/count/faces）
     sceneSuggestionsFinished = Signal(str)  # 场景建议完成（JSON，0.5.27）
     stacksDetected = Signal(int)  # 堆叠检测成功且栈数>0（0.5.32，图库自动切堆叠视图）
     clipAutoIndexChanged = Signal(bool)  # 自动语义索引开关变化（0.5.46，菜单/工具/设置三处联动）
     autoStartChanged = Signal(bool)  # 开机自启开关变化（0.5.48，设置里唯一入口）
     trayEnabledChanged = Signal(bool)  # 关闭到托盘开关变化（0.5.48，设置里唯一入口）
+    faceHqReady = Signal(int)  # 0.6.20 管理头像单脸 HQ 裁剪就绪（face_id）
+    dupScanFinished = Signal(int)  # 0.6.20 疑似重复人物扫描完成（候选对数，-1=失败）
+    # 0.6.21 候选列表后台加载完成（真机假死修复：弹窗不再同步构建 500 对数据）
+    dupCandidatesReady = Signal("QVariant")
 
     def __init__(self, db_path: str, parent=None):
         super().__init__(parent)
@@ -159,12 +165,24 @@ class LibraryBridge(QObject):
         self._fc_seen: set[int] = set()
         self._fc_lock = threading.Lock()
         self._fc_thread: threading.Thread | None = None
+        # 0.6.20：管理头像逐脸 HQ 缓存队列（GridView 可见 delegate 按需触发）
+        self._hqq: queue.Queue = queue.Queue()
+        self._hq_seen: set[int] = set()
+        self._hq_lock = threading.Lock()
+        self._hq_thread: threading.Thread | None = None
+        # 0.6.20：疑似重复人物后台扫描（单飞行）
+        self._dup_scan_running = False
+        self._dup_lock = threading.Lock()
+        self._dup_cand_running = False
+        self._dup_cand_lock = threading.Lock()
         self._tree_expanded: set[str] = set()
         self._dir_cache: dict[str, str] | None = None
         self._direct_cache: set[str] | None = None
         self._integrity: dict | None = None  # 最近一次完整性校验报告
         self._similar: list[tuple[int, float]] = []  # 最近一次以图搜图结果 (photo_id, score)
-        self._face_search: list[tuple[int, float]] = []  # 最近一次上传人脸搜图结果
+        self._face_search: list[tuple[int, float]] = []  # 最近一次上传人脸搜图（平铺，照片最高分）
+        # 0.6.21：人脸搜图按人物分组视图 [{personId,title,count,best,photos}]
+        self._face_search_groups: list[dict] = []
         # 0.5.36：图库排序（持久化），作用于 photos() 与 _photo_rows() 的所有列表视图
         self._gallery_sort = self._load_gallery_sort()
         self.photosChanged.connect(self._invalidate_dir_caches)
@@ -592,7 +610,12 @@ class LibraryBridge(QObject):
         """人物头像缓存后台构建队列：每个人物只解码一次原图（0.6.18）。
 
         队列直接携带裁剪参数——worker 线程**零数据库访问**（共享连接
-        跨线程有语句缓存竞态前科，且不持库文件句柄，测试清理不受影响）。"""
+        跨线程有语句缓存竞态前科，且不持库文件句柄，测试清理不受影响）。
+
+        0.6.20 修复：此前只把 (pid, face_id) 二元组入队，worker
+        `_build_face_crop(*key)` 需要 9 参 → 全部 TypeError 被吞，
+        **原图缓存从未构建成功过**（UI 一直走缩略图裁剪兜底，人物头像
+        实际比设计糊）。改为完整参数入队。"""
         key = (pid, face_id)
         if key in self._fc_seen:
             return
@@ -603,7 +626,7 @@ class LibraryBridge(QObject):
                     target=self._fc_worker, daemon=True,
                     name="face-crop-cache")
                 self._fc_thread.start()
-        self._fcq.put(key)
+        self._fcq.put((pid, face_id, bx, by, bw, bh, fpath, w, h))
 
     def _fc_worker(self) -> None:
         while True:
@@ -650,10 +673,171 @@ class LibraryBridge(QObject):
         except Exception:
             log.exception("人物头像缓存写盘失败 pid=%s face_id=%s", pid, face_id)
 
+    # ---------- 0.6.20：管理头像逐脸 HQ 缓存（data/face_crops_hq，LRU 上限） ----------
+    # 痛点：PersonFacesDialog 逐脸展示只有 512px 缩略图裁剪，合影小脸 2× 放大
+    # 必糊。策略：QML delegate 就位（GridView 只实例化可见项）时按需请求 HQ
+    # 裁剪，后台线程从原图解出 256px 裁剪；未就绪期间 UI 仍显示缩略图裁剪，
+    # 构建完成发 faceHqReady 换源。LRU 上限防 0.6.18 之前 2GB 膨胀覆辙。
+
+    _HQ_MAX_FILES = 2000
+    _HQ_MAX_BYTES = 500 * 1024 * 1024
+    # RAW 原图 PIL 解不开（需 rawpy，慢一个量级）：保持缩略图裁剪，不进队列
+    _HQ_SKIP_EXTS = {
+        ".3fr", ".ari", ".arw", ".bay", ".bmq", ".cap", ".cin", ".cr2", ".cr3",
+        ".crw", ".dc2", ".dcr", ".dcs", ".dng", ".drf", ".eip", ".erf", ".fff",
+        ".gpr", ".iiq", ".k25", ".kdc", ".mdc", ".mef", ".mos", ".mrw", ".nef",
+        ".nrw", ".obm", ".orf", ".pef", ".ptx", ".pxn", ".qtk", ".raf", ".rwl",
+        ".rw2", ".rwz", ".sr2", ".srf", ".srw", ".sti", ".x3f",
+    }
+
+    def _face_hq_path(self, face_id: int) -> Path:
+        return (Path(self.db.path).parent / "face_crops_hq"
+                / f"f{face_id % 256:04d}" / f"f{face_id}.jpg")
+
+    @Slot(int)
+    def requestFaceHq(self, face_id: int) -> None:
+        """管理头像网格 delegate 就位时按需请求 HQ 裁剪（含缓存命中直发信号）。
+
+        解码量跟随用户实际浏览（滚动到哪里构建哪里），不会一开弹窗就给
+        全部脸解码原图；每人每脸会话内只排队一次（_hq_seen 去重）。"""
+        if face_id <= 0 or face_id in self._hq_seen:
+            return
+        self._hq_seen.add(face_id)
+        cache = self._face_hq_path(face_id)
+        if cache.exists():
+            self.faceHqReady.emit(face_id)
+            return
+        row = self.db.conn.execute(
+            "SELECT f.bbox, p.file_path, p.width, p.height, p.ext"
+            " FROM faces f JOIN photos p ON p.id = f.photo_id WHERE f.id=?",
+            (face_id,),
+        ).fetchone()
+        if not row:
+            return
+        bbox, fpath, w, h, ext = row
+        if not (w and h) or not fpath:
+            return
+        if (ext or "").lower() in self._HQ_SKIP_EXTS:
+            return
+        fp = self._resolve(fpath)
+        if fp is None:
+            return
+        with self._hq_lock:
+            if self._hq_thread is None:
+                self._hq_thread = threading.Thread(
+                    target=self._hq_worker, daemon=True, name="face-hq-cache")
+                self._hq_thread.start()
+        # 队列直接携带裁剪参数——worker 线程零数据库访问（同 _fc_worker 约定）
+        self._hqq.put((face_id, bbox, str(fp), w, h))
+
+    def _hq_worker(self) -> None:
+        while True:
+            item = self._hqq.get()
+            if item is None:
+                return
+            try:
+                self._build_face_hq(*item)
+            except Exception:
+                log.exception("管理头像 HQ 缓存构建失败 face_id=%s", item[0])
+            finally:
+                self._hqq.task_done()
+            self.faceHqReady.emit(item[0])
+            time.sleep(0.02)  # 温和节流，避免持续满速读盘挤占浏览
+
+    def _build_face_hq(self, face_id: int, bbox: str, fpath: str,
+                       w: int, h: int) -> None:
+        """从原图构建管理头像 HQ 裁剪（256px，25% 边距），LRU 淘汰兜底。"""
+        out = self._face_hq_path(face_id)
+        if out.exists():
+            return
+        import json as _json
+
+        try:
+            bx, by, bw, bh = _json.loads(bbox)
+        except Exception:
+            return
+        scale = min(1.0, MAX_DIM / max(h, w)) if max(h, w) > 0 else 1.0
+        x, y = int(bx / scale), int(by / scale)
+        cw, ch = int(bw / scale), int(bh / scale)
+        try:
+            from PIL import Image, ImageOps
+
+            with Image.open(fpath) as im:
+                im = ImageOps.exif_transpose(im).convert("RGB")
+                ww, hh = im.size
+                x = max(0, min(x, ww - 1))
+                y = max(0, min(y, hh - 1))
+                cw = max(8, min(cw, ww - x))
+                ch = max(8, min(ch, hh - y))
+                mx, my = int(cw * 0.25), int(ch * 0.25)
+                crop = im.crop((max(0, x - mx), max(0, y - my),
+                                min(ww, x + cw + mx), min(hh, y + ch + my)))
+            crop.thumbnail((256, 256))
+            out.parent.mkdir(parents=True, exist_ok=True)
+            crop.save(out, "JPEG", quality=88)
+        except Exception:
+            return  # 原图缺失/损坏：静默放弃，UI 保持缩略图裁剪
+        self._face_hq_evict()
+
+    def _face_hq_evict(self) -> None:
+        """LRU 淘汰：文件数/总字节超上限时按 mtime 删最旧。
+
+        访问命中时 os.utime 触摸（faceAvatarHq 内），保证「最近看过」语义。"""
+        root = Path(self.db.path).parent / "face_crops_hq"
+        if not root.exists():
+            return
+        stats = []
+        for f in root.rglob("*.jpg"):
+            try:
+                stats.append((f, f.stat()))
+            except OSError:
+                continue
+        if (len(stats) <= self._HQ_MAX_FILES
+                and sum(s.st_size for _, s in stats) <= self._HQ_MAX_BYTES):
+            return
+        stats.sort(key=lambda t: t[1].st_mtime)
+        removed = 0
+        n, total = len(stats), sum(s.st_size for _, s in stats)
+        while stats and (n > self._HQ_MAX_FILES or total > self._HQ_MAX_BYTES):
+            f, s = stats.pop(0)
+            try:
+                f.unlink()
+                n -= 1
+                total -= s.st_size
+                removed += 1
+            except OSError:
+                pass
+        if removed:
+            log.info("管理头像 HQ 缓存淘汰 %d 张（上限 %d 张/%dMB）",
+                     removed, self._HQ_MAX_FILES, self._HQ_MAX_BYTES // 1048576)
+
+    @Slot(int, result="QVariant")
+    def faceAvatarHq(self, face_id: int) -> dict | None:
+        """HQ 裁剪缓存信息（path/w/h）；未就绪返回 None（UI 保持缩略图裁剪）。"""
+        if face_id <= 0:
+            return None
+        p = self._face_hq_path(face_id)
+        if not p.exists():
+            return None
+        try:
+            os.utime(p)  # LRU 触摸
+            from PIL import Image
+
+            with Image.open(p) as im:
+                w, h = im.size
+            return {"path": str(p), "w": w, "h": h}
+        except Exception:
+            return None
+
     @Slot(int, int, int, result="QVariant")
     def personPhotos(self, person_id: int, offset: int = 0, limit: int = 500) -> list[dict]:
-        where = ("EXISTS (SELECT 1 FROM faces f WHERE f.photo_id = photos.id"
-                 " AND f.person_id = ? AND f.hidden = 0)")
+        # 0.6.20：EXISTS 版在此规模下是分钟级灾难——查询计划对每张照片走
+        # idx_faces_person 扫该人物全部脸（17071 脸 × 24377 照片 ≈ 千亿探测，
+        # 基准库上直接触发看门狗）；且「人物脸越多越慢」与真机现象一致。
+        # 改 IN 物化（faces 侧按 person_id 取 photo_id → 主键探 photos → 排序），
+        # 真机规模实测 50~145ms（无 DISTINCT，IN 去重语义等价且省一个临时 B 树）。
+        where = ("photos.id IN (SELECT f.photo_id FROM faces f"
+                 " WHERE f.person_id = ? AND f.hidden = 0)")
         return self._pack(self._photo_rows(where, (person_id,), limit, offset))
 
     @Slot(int, result=int)
@@ -716,6 +900,9 @@ class LibraryBridge(QObject):
                 conn.execute(
                     "UPDATE persons SET face_count=(SELECT COUNT(*) FROM faces"
                     " WHERE person_id=?) WHERE id=?", (dst_id, dst_id))
+            # 0.6.20：src 人物已删除，候选对一并清掉（dst 仍存在，引用 dst 的对仍有效）
+            conn.execute("DELETE FROM person_dup_candidates WHERE a=? OR b=?",
+                         (src_id, src_id))
             conn.commit()
             return 1
         except Exception:
@@ -747,6 +934,322 @@ class LibraryBridge(QObject):
             conn.rollback()
             log.exception("删除人物失败")
             return 0
+
+    # ---------- 0.6.20：疑似重复人物（阶段一 Top-N 代表脸批量余弦） ----------
+    # 数据基础：faces.descriptor（SFace 128 维）全量在库；聚类实测同人
+    # 余弦 0.5~0.9、跨人 0.05~0.15——卡在聚类阈值边缘（0.35~阈值）的
+    # 人物对极可能是被拆散的同一个人。阶段一只比「照片数前 N 的未命名
+    # 人物」的代表脸：numpy 矩阵乘批量算余弦，2000 人 = 200 万对 <1s，
+    # LSH 分桶在这个规模纯属过度设计（阶段二数万大人物再议）。
+
+    DUP_MIN_SIM = 0.35          # 候选对相似度下限（低于此基本是不同人）
+    DUP_MAX_OUT = 500           # 单次扫描最多落库的候选对数
+
+    @Slot(result=str)
+    def dupScanStart(self) -> str:
+        """启动后台全库扫描（单飞行；已在跑返回 "running"）。"""
+        with self._dup_lock:
+            if self._dup_scan_running:
+                return "running"
+            self._dup_scan_running = True
+        threading.Thread(target=self._dup_scan_worker, daemon=True,
+                         name="dup-persons-scan").start()
+        return "started"
+
+    @Slot(int, result=str)
+    def dupScanFor(self, person_id: int) -> str:
+        """以单个人物为锚点扫疑似重复（0.6.21 两步式，真机反馈）。
+
+        只算该人物 vs 全部未命名人物代表脸（O(N) 余弦），不清其他候选
+        对；结果同样落 person_dup_candidates，信号/弹窗复用全库扫描
+        链路。单飞行与全库扫描互斥。"""
+        with self._dup_lock:
+            if self._dup_scan_running:
+                return "running"
+            self._dup_scan_running = True
+        threading.Thread(target=self._dup_anchor_worker,
+                         args=(int(person_id),), daemon=True,
+                         name="dup-persons-anchor").start()
+        return "started"
+
+    def _dup_anchor_worker(self, anchor_pid: int) -> None:
+        try:
+            n = self._dup_scan_anchor(anchor_pid)
+        except Exception:
+            log.exception("疑似重复人物锚点扫描失败")
+            n = -1
+        finally:
+            with self._dup_lock:
+                self._dup_scan_running = False
+        self.dupScanFinished.emit(n)
+
+    def _dup_scan_anchor(self, anchor_pid: int) -> int:
+        """锚点扫描核心（同步版，测试直调）。返回新增候选对数。
+
+        锚点无可用代表脸返回 -1；已忽略对跳过；每批 4096 向量流式
+        余弦，超大库不做一次性大矩阵。"""
+        import sqlite3
+
+        import numpy as np
+
+        dim = 128  # SFace 固定 128 维（4 字节 float，与 facecluster 同校验）
+        conn = sqlite3.connect(self.db.path, timeout=10)
+        try:
+            arow = conn.execute(
+                "SELECT descriptor FROM faces WHERE person_id=? AND hidden=0"
+                " ORDER BY score DESC LIMIT 1", (anchor_pid,)).fetchone()
+            if arow is None or arow[0] is None or len(arow[0]) != dim * 4:
+                return -1
+            va = np.frombuffer(arow[0], dtype=np.float32)
+            va = va / max(float(np.linalg.norm(va)), 1e-9)
+            rows = conn.execute(
+                "SELECT f.person_id, f.descriptor FROM"
+                " (SELECT id, person_id, descriptor, ROW_NUMBER() OVER"
+                "  (PARTITION BY person_id ORDER BY score DESC) rn"
+                "  FROM faces WHERE hidden=0 AND person_id IN"
+                "   (SELECT id FROM persons WHERE name IS NULL)) f"
+                " WHERE f.rn=1").fetchall()
+            upper = float(self.faceClusterThreshold())
+            ignored = set()
+            for a, b in conn.execute(
+                    "SELECT a, b FROM person_dup_candidates WHERE ignored=1"):
+                ignored.add((int(a), int(b)))
+                ignored.add((int(b), int(a)))
+            cand: list[tuple[float, int, int]] = []
+            batch: list[tuple[int, "object"]] = []
+
+            def flush() -> None:
+                if not batch:
+                    return
+                m = np.stack([d for _, d in batch])
+                m = m / np.maximum(
+                    np.linalg.norm(m, axis=1, keepdims=True), 1e-9)
+                sims = m @ va
+                for (pid, _), s in zip(batch, sims):
+                    if (self.DUP_MIN_SIM <= float(s) < upper
+                            and (anchor_pid, pid) not in ignored):
+                        cand.append((float(s), min(anchor_pid, pid),
+                                     max(anchor_pid, pid)))
+                batch.clear()
+
+            for pid, blob in rows:
+                pid = int(pid)
+                if pid == anchor_pid or blob is None or len(blob) != dim * 4:
+                    continue
+                batch.append((pid, np.frombuffer(blob, dtype=np.float32)))
+                if len(batch) >= 4096:
+                    flush()
+            flush()
+            cand.sort(reverse=True)
+            cand = cand[: self.DUP_MAX_OUT]
+            conn.executemany(
+                "INSERT OR REPLACE INTO person_dup_candidates(a, b, sim,"
+                " ignored) VALUES (?,?,?,0)",
+                [(a, b, s) for s, a, b in cand])
+            conn.commit()
+            return len(cand)
+        finally:
+            conn.close()
+
+    @Slot(result="QVariant")
+    def dupScanStatus(self) -> dict:
+        n = self.db.conn.execute(
+            "SELECT COUNT(*) FROM person_dup_candidates WHERE ignored=0"
+        ).fetchone()[0]
+        return {"running": self._dup_scan_running, "count": n}
+
+    def _dup_scan_worker(self) -> None:
+        try:
+            n = self._dup_scan_now()
+        except Exception:
+            log.exception("疑似重复人物扫描失败")
+            n = -1
+        finally:
+            with self._dup_lock:
+                self._dup_scan_running = False
+        self.dupScanFinished.emit(n)
+
+    def _dup_scan_now(self, top_n: int = 0) -> int:
+        """全对全余弦扫描并写候选对表，返回候选对数（同步版，测试直调）。
+
+        全程独立 sqlite 连接（后台线程禁用 UI 共享连接——项目硬规则）；
+        每人物取 score 最高的第 1 张脸作代表（与 peoplePaged 头像同源）；
+        已命名人物不参与；「忽略此对」跨扫描持久；重聚类产生的死 id 由
+        dupCandidates 读取时 INNER JOIN persons 自然过滤。"""
+        import sqlite3
+
+        import numpy as np
+
+        top_n = max(2, int(top_n or 1500))
+        conn = sqlite3.connect(self.db.path, timeout=10)
+        try:
+            rows = conn.execute(
+                "SELECT f.person_id, COUNT(DISTINCT f.photo_id) n"
+                " FROM faces f JOIN persons p ON p.id = f.person_id"
+                " WHERE f.hidden=0 AND p.name IS NULL"
+                " GROUP BY f.person_id ORDER BY n DESC LIMIT ?",
+                (top_n,),
+            ).fetchall()
+            if len(rows) < 2:
+                conn.execute("DELETE FROM person_dup_candidates WHERE ignored=0")
+                conn.commit()
+                return 0
+            ids = [int(r[0]) for r in rows]
+            marks = ",".join("?" * len(ids))
+            frows = conn.execute(
+                f"SELECT f.person_id, f.descriptor FROM"
+                f" (SELECT id, person_id, descriptor, ROW_NUMBER() OVER"
+                f"  (PARTITION BY person_id ORDER BY score DESC) rn"
+                f"  FROM faces WHERE hidden=0 AND person_id IN ({marks})) f"
+                f" WHERE f.rn=1",
+                ids,
+            ).fetchall()
+            dim = 128  # SFace 固定 128 维（4 字节 float，与 facecluster 同校验）
+            desc = {}
+            for pid, blob in frows:
+                if blob is None or len(blob) != dim * 4:
+                    continue
+                desc[int(pid)] = np.frombuffer(blob, dtype=np.float32)
+            pids = [p for p in ids if p in desc]
+            if len(pids) < 2:
+                conn.execute("DELETE FROM person_dup_candidates WHERE ignored=0")
+                conn.commit()
+                return 0
+            m = np.stack([desc[p] for p in pids])
+            m = m / np.linalg.norm(m, axis=1, keepdims=True)
+            sim = m @ m.T
+            upper = float(self.faceClusterThreshold())
+            mask = (sim >= self.DUP_MIN_SIM) & (sim < upper)
+            pairs = np.argwhere(mask)
+            pairs = pairs[pairs[:, 0] < pairs[:, 1]]
+            cand = sorted(
+                ((float(sim[i, j]), pids[i], pids[j]) for i, j in pairs),
+                reverse=True,
+            )[: self.DUP_MAX_OUT]
+            ignored = set()
+            for a, b in conn.execute(
+                "SELECT a, b FROM person_dup_candidates WHERE ignored=1"
+            ):
+                ignored.add((int(a), int(b)))
+                ignored.add((int(b), int(a)))
+            conn.execute("DELETE FROM person_dup_candidates WHERE ignored=0")
+            insert_rows = [(a, b, s) for s, a, b in cand
+                           if (a, b) not in ignored]
+            conn.executemany(
+                "INSERT OR REPLACE INTO person_dup_candidates(a, b, sim, ignored)"
+                " VALUES (?,?,?,0)",
+                insert_rows,
+            )
+            conn.commit()
+            return len(insert_rows)
+        finally:
+            conn.close()
+
+    @Slot(result="QVariant")
+    def dupCandidates(self) -> list[dict]:
+        """候选对列表（b = 照片数多的一方，即默认合并方向）。同步版（测试直调）。
+
+        QML 一律走 dupCandidatesAsync（0.6.21：真机大库下同步构建 500 对
+        头像数据导致弹窗打开假死）。"""
+        return self._dup_candidates_impl(self.db.conn)
+
+    @Slot()
+    def dupCandidatesAsync(self) -> None:
+        """后台加载候选对列表，完成发 dupCandidatesReady（单飞行）。"""
+        with self._dup_cand_lock:
+            if self._dup_cand_running:
+                return
+            self._dup_cand_running = True
+        threading.Thread(target=self._dup_cand_worker,
+                         name="dup-persons-candidates").start()
+
+    def _dup_cand_worker(self) -> None:
+        import sqlite3
+
+        out: list[dict] = []
+        try:
+            conn = sqlite3.connect(self.db.path, timeout=10)
+            try:
+                out = self._dup_candidates_impl(conn)
+            finally:
+                conn.close()
+        except Exception:
+            log.exception("疑似重复候选加载失败")
+        self._dup_cand_running = False
+        self.dupCandidatesReady.emit(out)
+
+    def _dup_candidates_impl(self, conn) -> list[dict]:
+        """候选对列表核心（b = 照片数多的一方，即默认合并方向）。
+
+        每对含双方显示名/照片数/代表头像（走 face_crops 人物缓存，零原图
+        解码）与相似度百分比。重聚类后人物 id 失效的对经 INNER JOIN 自然
+        消失，无需清理钩子。"""
+        rows = conn.execute(
+            "SELECT c.a, c.b, c.sim FROM person_dup_candidates c"
+            " JOIN persons pa ON pa.id = c.a"
+            " JOIN persons pb ON pb.id = c.b"
+            " WHERE c.ignored=0 AND pa.name IS NULL AND pb.name IS NULL"
+            " ORDER BY c.sim DESC"
+        ).fetchall()
+        if not rows:
+            return []
+        pids = {p for r in rows for p in (r[0], r[1])}
+        counts = {r[0]: r[1] for r in conn.execute(
+            "SELECT person_id, COUNT(DISTINCT photo_id) FROM faces"
+            f" WHERE hidden=0 AND person_id IN ({','.join('?' * len(pids))})"
+            " GROUP BY person_id", list(pids))}
+        av_marks = ",".join("?" * len(pids))
+        av_rows = {r[0]: r[1:] for r in conn.execute(
+            "SELECT f.person_id, f.id, f.bbox, p.file_path, p.thumbnail_path,"
+            " p.width, p.height, p.thumb_width, p.thumb_height"
+            " FROM (SELECT id, person_id, bbox, photo_id,"
+            "  ROW_NUMBER() OVER (PARTITION BY person_id"
+            "  ORDER BY score DESC) rn"
+            f"  FROM faces WHERE hidden=0 AND person_id IN ({av_marks})"
+            " ) f JOIN photos p ON p.id = f.photo_id WHERE f.rn=1",
+            list(pids))}
+        out = []
+        for a, b, sim in rows:
+            a, b = int(a), int(b)
+            ca, cb = counts.get(a, 0), counts.get(b, 0)
+            if ca < cb:
+                a, b, ca, cb = b, a, cb, ca
+            item = {"a": a, "b": b, "sim": round(sim * 100),
+                    "aName": f"人物 #{a}", "bName": f"人物 #{b}",
+                    "aCount": ca, "bCount": cb}
+            for key, pid in (("avA", a), ("avB", b)):
+                av = self._face_avatar(pid, av_rows.get(pid))
+                if av:
+                    item[key] = av
+            out.append(item)
+        return out
+
+    @Slot(int, int)
+    def dupIgnore(self, a: int, b: int) -> None:
+        """忽略候选对（跨扫描持久；双向归一）。"""
+        self.db.conn.execute(
+            "UPDATE person_dup_candidates SET ignored=1"
+            " WHERE (a=? AND b=?) OR (a=? AND b=?)", (a, b, b, a))
+        self.db.conn.commit()
+
+    @Slot(str, result=str)
+    def readPackagedText(self, name: str) -> str:
+        """读取随包文本（LICENSE / THIRD-PARTY-NOTICES.md，帮助菜单查看用）。
+
+        打包后 datas 落在 sys._MEIPASS（onedir 即 _internal/），开发模式在
+        项目根。只读展示，找不到返回空串。"""
+        candidates = []
+        if getattr(sys, "frozen", False) and getattr(sys, "_MEIPASS", ""):
+            candidates.append(Path(sys._MEIPASS) / name)
+        candidates.append(Path(__file__).resolve().parent.parent / name)
+        for p in candidates:
+            if p.is_file():
+                try:
+                    return p.read_text(encoding="utf-8", errors="replace")
+                except Exception:
+                    log.exception("读取随包文本失败: %s", p)
+                    return ""
+        return ""
 
     @Slot("QVariant", int, result=int)
     def movePhotosToPerson(self, ids, person_id: int) -> int:
@@ -1573,19 +2076,56 @@ class LibraryBridge(QObject):
         if not d:
             return False
         folder = d.get("folder") or ""
+        return self._open_in_file_manager(folder)
+
+    @Slot(str, result=bool)
+    def openDir(self, path: str) -> bool:
+        """打开任意目录（0.6.20：导出历史「打开目录」改走此槽——
+        此前 QML 用 Qt.openUrlExternally("file:///...")，银河麒麟 UKUI
+        桌面无 file:// 目录处理关联时静默失败，用户点击无反应）。"""
+        if not path:
+            return False
+        return self._open_in_file_manager(self._resolve(path) or path)
+
+    # Linux 常见文件管理器兜底链（麒麟 UKUI=peony；深度=dde-file-manager）
+    _LINUX_FILE_MANAGERS = (
+        "xdg-open", "peony", "dde-file-manager", "deepin-file-manager",
+        "pcmanfm-qt", "pcmanfm", "nautilus", "dolphin", "thunar",
+        "nemo", "caja",
+    )
+
+    def _open_in_file_manager(self, path: str) -> bool:
+        """用系统文件管理器打开目录（跨平台；0.6.20 麒麟加固）。
+
+        此前 Linux 直接 Popen(["xdg-open", ...])：xdg-open 不存在时
+        FileNotFoundError 从槽抛出被 Qt 吞掉，用户看到「点了没反应」。
+        现按 shutil.which 探测 + 文件管理器兜底链逐个尝试。"""
+        import shutil
+        import subprocess
+
+        folder = path or ""
         if not folder or not os.path.isdir(folder):
             return False
-        import subprocess
         if sys.platform == "win32":
             try:
                 os.startfile(folder)  # type: ignore[attr-defined]
+                return True
             except OSError:
                 return False
-        elif sys.platform == "darwin":
+        if sys.platform == "darwin":
             subprocess.Popen(["open", folder])
-        else:
-            subprocess.Popen(["xdg-open", folder])
-        return True
+            return True
+        for cmd in self._LINUX_FILE_MANAGERS:
+            if shutil.which(cmd) is None:
+                continue
+            try:
+                subprocess.Popen([cmd, folder], stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.DEVNULL)
+                return True
+            except OSError:
+                continue
+        log.warning("打开目录失败：未找到可用文件管理器 (%s)", folder)
+        return False
 
     @Slot(str, result=bool)
     def openExternal(self, path: str) -> bool:
@@ -1599,6 +2139,7 @@ class LibraryBridge(QObject):
             target = str(fp)
         if not os.path.exists(target):
             return False
+        import shutil
         import subprocess
         try:
             if sys.platform == "win32":
@@ -1606,7 +2147,14 @@ class LibraryBridge(QObject):
             elif sys.platform == "darwin":
                 subprocess.Popen(["open", target])
             else:
-                subprocess.Popen(["xdg-open", target])
+                openers = [c for c in self._LINUX_FILE_MANAGERS
+                           if shutil.which(c) is not None]
+                if not openers:
+                    log.warning("openExternal：未找到可用打开器 (%s)", target)
+                    return False
+                subprocess.Popen([openers[0], target],
+                                 stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.DEVNULL)
         except Exception:
             return False
         return True
@@ -2141,6 +2689,11 @@ class LibraryBridge(QObject):
                             target = dest / f"{target.stem}_{pid}{target.suffix}"
                         shutil.copy2(src, target)
                         ok += 1
+                        # 0.6.20 修复：免转码快速路径此前漏写导出历史——
+                        # 「原格式+原始分辨率」（最常用选择）导出后「已导出」页
+                        # 永远无记录（麒麟真机用户反馈，复现确认）。
+                        self._record_export(pid, target.name, dest,
+                                            "original", "original")
                         continue
                     from PIL import Image, ImageOps  # noqa: PLC0415
 
@@ -4987,10 +5540,34 @@ class LibraryBridge(QObject):
         return ordered
 
     # ---------- 上传人脸搜图（0.5.37-1，YuNet 检测 + SFace 向量比对） ----------
-    @Slot(str, result=str)
-    def searchByFace(self, image_path: str) -> str:
-        """上传人脸搜图（后台）：选择本地图片 → 检测人脸 → 与库内人脸向量比对。
+    @Slot(str)
+    def detectUploadFaces(self, image_path: str) -> None:
+        """上传人脸搜图第一步（0.6.21）：后台检测图中**全部**人脸。
 
+        完成后 emit uploadFacesDetected(JSON)：count=1 由 QML 直接搜索；
+        多张弹人脸选择器（faces 含每张脸的置信度与缩略图临时文件路径）；
+        0 张 / 出错（count 0/-1）由 QML 提示。纯只读，不动原图。"""
+        from photo_manager.core.faces import detect_faces_for_search
+
+        def worker():
+            try:
+                faces = detect_faces_for_search(image_path, models_dir())
+                payload = {"path": image_path, "count": len(faces),
+                           "faces": faces}
+            except Exception as e:
+                log.exception("detectUploadFaces 失败")
+                payload = {"path": image_path, "count": -1, "error": str(e)}
+            self.uploadFacesDetected.emit(json.dumps(payload))
+
+        threading.Thread(target=worker, daemon=True,
+                         name="upload-face-detect").start()
+
+    @Slot(str, int, result=str)
+    def searchByFace(self, image_path: str, face_index: int = -1) -> str:
+        """上传人脸搜图（后台）：检测人脸 → 与库内人脸向量比对。
+
+        face_index：图中多张脸时由 QML 人脸选择器指定的序号（按检测置信
+        度降序，与 detectUploadFaces 返回的 index 同序）；-1 = 置信度最高。
         纯只读（不写库、不动原图）；完成后 emit similarFinished(JSON, kind=face)。
         """
         from photo_manager.core.faces import search_by_face
@@ -5003,9 +5580,12 @@ class LibraryBridge(QObject):
         self.message.emit(_tr("正在按人脸搜索照片…"))
         def worker():
             try:
-                res = search_by_face(self.db, image_path, models_dir())
-                self._face_search = res
-                n = len(res)
+                res = search_by_face(self.db, image_path, models_dir(),
+                                     face_index=face_index)
+                self._face_search = self._face_search_flat(res)
+                self._face_search_groups = self._face_search_grouped(
+                    res, self._face_search_names(res))
+                n = len(self._face_search)
                 if n:
                     self._finish(_tr("人脸搜索完成：找到 {p1} 张相似照片").format(p1=n))
                 else:
@@ -5019,6 +5599,88 @@ class LibraryBridge(QObject):
 
         threading.Thread(target=worker, daemon=True).start()
         return ""
+
+    def _face_search_names(self, res: list[tuple[int, float, int]]) -> dict[int, str]:
+        """命中人物的名字表（后台线程 → 独立 sqlite 连接，项目硬规则）。"""
+        import sqlite3
+
+        pids = sorted({p for _, _, p in res if p})
+        if not pids:
+            return {}
+        marks = ",".join("?" * len(pids))
+        conn = sqlite3.connect(self.db.path, timeout=10)
+        try:
+            return {r[0]: r[1] for r in conn.execute(
+                f"SELECT id, name FROM persons WHERE id IN ({marks})", pids)}
+        finally:
+            conn.close()
+
+    @staticmethod
+    def _face_group_title(person_id: int, names: dict[int, str]) -> str:
+        if not person_id:
+            return _tr("未指派人物")
+        return names.get(person_id) or f"人物 #{person_id}"
+
+    @staticmethod
+    def _face_search_flat(res: list[tuple[int, float, int]]) -> list[tuple[int, float]]:
+        """平铺视图：同一照片取最高分（按相似度降序）。"""
+        best: dict[int, float] = {}
+        for photo_id, sim, _person in res:
+            if sim > best.get(photo_id, -1.0):
+                best[photo_id] = sim
+        return sorted(best.items(), key=lambda kv: kv[1], reverse=True)
+
+    @staticmethod
+    def _face_search_grouped(
+            res: list[tuple[int, float, int]],
+            names: dict[int, str]) -> list[dict]:
+        """按人物分组视图（0.6.21）：组间按组内最高相似度降序，组内照片
+        按相似度降序；person_id=0（未指派）也成组。同一照片经不同人脸
+        命中不同人物时，会在各人物组各出现一次（语义正确）。"""
+        gacc: dict[int, dict[int, float]] = {}
+        for photo_id, sim, person in res:
+            g = gacc.setdefault(person, {})
+            if sim > g.get(photo_id, -1.0):
+                g[photo_id] = sim
+        title = LibraryBridge._face_group_title
+        return [
+            {
+                "personId": p,
+                "title": LibraryBridge._face_group_title(p, names),
+                "count": len(photos),
+                "best": round(max(photos.values()) * 100),
+                "photos": sorted(photos.items(), key=lambda kv: kv[1],
+                                 reverse=True),
+            }
+            for p, photos in sorted(
+                gacc.items(),
+                key=lambda kv: max(kv[1].values()), reverse=True)
+        ]
+
+    @Slot(result=int)
+    def faceSearchGroupCount(self) -> int:
+        return len(self._face_search_groups)
+
+    @Slot(result="QVariant")
+    def faceSearchGroups(self) -> list[dict]:
+        """人物分组元信息（不含照片），组间按最高相似度降序。"""
+        return [{"personId": g["personId"], "title": g["title"],
+                 "count": g["count"], "best": g["best"]}
+                for g in self._face_search_groups]
+
+    @Slot(int, int, int, result="QVariant")
+    def faceSearchGroupPhotos(self, person_id: int, offset: int = 0,
+                              limit: int = 500) -> list[dict]:
+        """某人物组内照片分页（相似度降序，附 score 与分组的组键/组名）。"""
+        g = next((x for x in self._face_search_groups
+                  if x["personId"] == person_id), None)
+        part = g["photos"][offset:offset + limit] if g else []
+        out = self._paged_scored(part, 0, len(part)) if part else []
+        if g:
+            for it in out:
+                it["personGroup"] = str(person_id)
+                it["personGroupName"] = g["title"]
+        return out
 
     @Slot(result=int)
     def faceSearchCount(self) -> int:

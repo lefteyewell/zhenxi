@@ -227,24 +227,35 @@ Item {
                 continue
             _seenIds[arr[i].id] = true
             /* 后端 _pack 不返回 selected 字段，若不初始化，delegate 里的
-               model.selected 会是 undefined（选中态绑定不可靠）。 */
-            arr[i].selected = false
+               model.selected 会是 undefined（选中态绑定不可靠）。
+               0.6.20：reloadCurrent 保留选择——重建网格时按 selectedIds
+               恢复勾选（含后续分页补进的格子），弹窗/菜单操作后
+               选中态不再凭空消失（麒麟真机反馈）。 */
+            arr[i].selected = root.selectedIds.indexOf(arr[i].id) >= 0
             /* 0.5.64 分组模式改为分段列表存储：每组一个 ListModel，
                组头行高 32px（原 GridView 独占整行方案组头行高=格子边长，
                上下大片空白——用户反馈「空白位置太多」后重构）。
                折叠仅是 UI 状态（成员留在组模型里，Flow 隐藏），不再搬行。 */
             if (root._inGroupMode()) {
-                var dir = _dirOf(arr[i].path)
+                /* 组键：all 模式=照片所在文件夹；facesearch 分人物=命中
+                   人物（personGroup 由 bridge 附带，personGroupName=组名） */
+                var dir, gname
+                if (root._mode === "facesearch") {
+                    dir = String(arr[i].personGroup || "0")
+                    gname = arr[i].personGroupName || I18n.tr("未指派人物")
+                } else {
+                    dir = _dirOf(arr[i].path)
+                    var parts = dir.split("/")
+                    gname = parts[parts.length - 1] || dir
+                }
                 var gi = _groupStoreIndexOf(dir)
                 if (gi < 0) {
                     var lm = Qt.createQmlObject(
                         "import QtQuick; ListModel { }", root,
                         "GroupModel_" + _groupStore.length)
                     _groupStore.push({ dir: dir, model: lm })
-                    /* 外层分段模型追加一行（dir 唯一，组按文件夹序到达） */
-                    var parts = dir.split("/")
-                    groupSectionsModel.append(
-                        { dir: dir, name: parts[parts.length - 1] || dir })
+                    /* 外层分段模型追加一行（dir 唯一，组按到达顺序） */
+                    groupSectionsModel.append({ dir: dir, name: gname })
                     gi = _groupStore.length - 1
                 }
                 _groupStore[gi].model.append(arr[i])
@@ -266,6 +277,9 @@ Item {
 
     function _fetchMore() {
         if (_busy) return
+        /* 0.6.21：人脸搜索按人物分组在 loadFaceSearch 一次性整库载入
+           （组序=相似度序，组内分页拉满），无需滚动增量 */
+        if (_mode === "facesearch" && root.faceGroupMode) return
         _busy = true
         var arr
         if (_mode === "all")
@@ -508,7 +522,8 @@ Item {
         _fetchMore()
     }
 
-    /* 0.5.37：上传人脸搜图结果（相似度降序，附 score） */
+    /* 0.5.37：上传人脸搜图结果。0.6.21 起支持两种排列：
+       按相似度平铺（默认）/ 按人物分组（组内相似度降序，可折叠） */
     function loadFaceSearch() {
         root._setTitle("facesearch", "")
         _mode = "facesearch"
@@ -517,11 +532,37 @@ Item {
         backTarget = 0
         stackMode = false
         _reset()
+        if (root.faceGroupMode) {
+            _loadFaceSearchGrouped()
+            return
+        }
         _fetchMore()
     }
 
-    /* 重新加载当前视图（归档/取消归档后刷新网格，使隐藏/恢复立即生效） */
+    /* 按人物分组载入：组间按最高相似度（bridge 已排好），逐组分页拉满 */
+    function _loadFaceSearchGrouped() {
+        var groups = LibraryBridge.faceSearchGroups()
+        for (var g = 0; g < groups.length; ++g) {
+            var pid = groups[g].personId
+            var off = 0
+            for (;;) {
+                var arr = LibraryBridge.faceSearchGroupPhotos(pid, off, 500)
+                if (!arr || arr.length === 0) break
+                _append(arr)
+                if (arr.length < 500) break
+                off += 500
+            }
+        }
+        countText.text = _loaded + I18n.tr(" 张 · 按人物分组（组内按相似度）")
+    }
+
+    /* 重新加载当前视图（归档/取消归档后刷新网格，使隐藏/恢复立即生效）
+       0.6.20：保留选择——弹窗/右键菜单操作触发的重载此前把选中态整格
+       清空（_reset→clearSelection），用户关掉弹窗后看不出刚才选了哪些
+       （麒麟真机反馈）。重载前捕获 selectedIds，加载后恢复；
+       新格子由 _append 按 selectedIds 恢复勾选（分页渐进一致）。 */
     function reloadCurrent() {
+        var keepSel = root.selectedIds.slice()
         if (_mode === "all") loadAll()
         else if (_mode === "event") loadEvent(currentEventId)
         else if (_mode === "folder") loadFolder(_filterValue)
@@ -539,6 +580,7 @@ Item {
         else if (_mode === "similar") loadSimilar()
         else if (_mode === "facesearch") loadFaceSearch()
         else search(pageTitle.slice(3))
+        root.selectedIds = keepSel
     }
 
     function clearSelection() {
@@ -598,6 +640,9 @@ Item {
     property string _lastGroupDir: ""
     /* 0.5.55：分组视图独立开关（与排序解耦；仅"全部照片"视图生效） */
     property bool groupMode: LibraryBridge ? LibraryBridge.galleryGroupView() : false
+    /* 0.6.21：人脸搜索结果「按人物分组」排列（仅 facesearch 模式可用，
+       组内仍按相似度降序，组可折叠——复用 all 模式的分段分组管线） */
+    property bool faceGroupMode: false
 
     function toggleGroupMode() {
         groupMode = !groupMode
@@ -618,7 +663,11 @@ Item {
     /* ---------- 0.5.64 分组模式分段重构：辅助函数 ---------- */
 
     function _inGroupMode() {
-        return root.groupMode && root._mode === "all" && !root.stackMode
+        if (root.stackMode) return false
+        if (root._mode === "all") return root.groupMode
+        /* 0.6.21：人脸搜索按人物分组同样走分段分组管线 */
+        if (root._mode === "facesearch") return root.faceGroupMode
+        return false
     }
 
     /* 圈选/落点的坐标系：平铺=gridView，分组=groupList */
@@ -874,7 +923,7 @@ Item {
                         border.color: "white"
                         Text {
                             anchors.centerIn: parent
-                            text: "✓"
+                            text: "√"
                             font.pixelSize: 12
                             font.weight: Font.Bold
                             color: "white"
@@ -924,7 +973,7 @@ Item {
                         visible: thumb.status !== Image.Ready
                         Text {
                             anchors.centerIn: parent
-                            text: model.faceCount > 0 ? "👤×" + model.faceCount : "?"
+                            text: model.faceCount > 0 ? "◎×" + model.faceCount : "?"
                             font.pixelSize: 20
                             color: Theme.textDim
                         }
@@ -942,7 +991,7 @@ Item {
                         color: Theme.accent
                         Text {
                             anchors.centerIn: parent
-                            text: "👤" + model.faceCount
+                            text: "◎" + model.faceCount
                             font.pixelSize: 10
                             color: "white"
                         }
@@ -981,7 +1030,7 @@ Item {
                         HoverHandler { id: decHover }
                         Text {
                             anchors.centerIn: parent
-                            text: "⚠"
+                            text: "!"
                             font.pixelSize: 11
                             font.weight: Font.DemiBold
                             color: "white"
@@ -999,7 +1048,7 @@ Item {
                         color: "#2e7d32"
                         Text {
                             anchors.centerIn: parent
-                            text: "✓"
+                            text: "√"
                             font.pixelSize: 10
                             font.weight: Font.DemiBold
                             color: "white"
@@ -1017,7 +1066,7 @@ Item {
                         color: "#b71c1c"
                         Text {
                             anchors.centerIn: parent
-                            text: "✕"
+                            text: "×"
                             font.pixelSize: 10
                             font.weight: Font.DemiBold
                             color: "white"
@@ -1184,11 +1233,14 @@ Item {
         anchors.fill: parent
         spacing: 0
 
-        Row {
+        /* 0.6.21 顶栏重写：此前是普通 Row + 无效的 Layout 附加属性——
+           标题不限宽不省略（长人物名把右侧按钮挤出可视区）、弹性填充
+           Item 不生效（右侧大片空白）。改 RowLayout 修复布局与错位。 */
+        RowLayout {
             Layout.fillWidth: true
             Layout.preferredHeight: 48
-            leftPadding: Theme.spacingMedium
-            rightPadding: Theme.spacingMedium
+            Layout.leftMargin: Theme.spacingMedium
+            Layout.rightMargin: Theme.spacingMedium
             spacing: Theme.spacingSmall
 
             PMButton {
@@ -1197,24 +1249,24 @@ Item {
                 text: I18n.tr("‹ 返回")
                 width: 68
                 height: 30
-                anchors.verticalCenter: parent.verticalCenter
+                Layout.alignment: Qt.AlignVCenter
                 visible: root._mode !== "all"
                 onClicked: root.backRequested()
             }
             Text {
                 id: titleText
                 text: root.pageTitle
-                anchors.verticalCenter: parent.verticalCenter
+                Layout.alignment: Qt.AlignVCenter
+                Layout.maximumWidth: 460
                 font.family: Theme.fontFamily
                 font.pixelSize: 18
                 font.weight: Font.DemiBold
                 color: Theme.text
                 elide: Text.ElideMiddle
-                Layout.maximumWidth: 520
             }
             Text {
                 id: countText
-                anchors.verticalCenter: parent.verticalCenter
+                Layout.alignment: Qt.AlignVCenter
                 font.family: Theme.fontFamily
                 font.pixelSize: 12
                 color: Theme.textDim
@@ -1224,15 +1276,31 @@ Item {
                 objectName: "personFacesManageBtn"
                 text: I18n.tr("管理头像")
                 height: 30
-                anchors.verticalCenter: parent.verticalCenter
+                Layout.alignment: Qt.AlignVCenter
                 visible: root._mode === "person"
                 tooltip: I18n.tr("列出该人物的全部头像，勾选后可拆分到新人物或其他人物")
                 onClicked: root.personFacesRequested(root._filterValue)
             }
-            Item { Layout.fillWidth: true; width: 10 }
+            /* 0.6.21：人脸搜索结果排列切换（按相似度平铺 / 按人物分组） */
+            PMButton {
+                objectName: "faceGroupBtn"
+                text: root.faceGroupMode ? I18n.tr("按相似度") : I18n.tr("按人物")
+                height: 30
+                Layout.alignment: Qt.AlignVCenter
+                visible: root._mode === "facesearch"
+                tooltip: root.faceGroupMode
+                         ? I18n.tr("切回按相似度平铺排列")
+                         : I18n.tr("按匹配到的人物分组排列：组内仍按相似度，每个人物可折叠")
+                onClicked: {
+                    root.faceGroupMode = !root.faceGroupMode
+                    loadFaceSearch()
+                }
+            }
+            Item { Layout.fillWidth: true; Layout.fillHeight: true }
             Text {
                 text: root.selectedIds.length > 0 ? I18n.tr("已选 ") + root.selectedIds.length + I18n.tr(" 张") : ""
-                anchors.verticalCenter: parent.verticalCenter
+                Layout.alignment: Qt.AlignVCenter
+                Layout.rightMargin: Theme.spacingMedium
                 font.family: Theme.fontFamily
                 font.pixelSize: 12
                 color: Theme.primary
@@ -1258,8 +1326,8 @@ Item {
             Repeater {
                 model: [
                     {"label": I18n.tr("全部"), "mode": "all", "tip": I18n.tr("显示全部未作废的照片")},
-                    {"label": I18n.tr("精选 ✓"), "mode": "pick", "tip": I18n.tr("只显示打了「精选」旗标的照片")},
-                    {"label": I18n.tr("排除 ✕"), "mode": "reject", "tip": I18n.tr("只显示打了「排除」旗标的照片（筛选候选）")},
+                    {"label": I18n.tr("精选 √"), "mode": "pick", "tip": I18n.tr("只显示打了「精选」旗标的照片")},
+                    {"label": I18n.tr("排除 ×"), "mode": "reject", "tip": I18n.tr("只显示打了「排除」旗标的照片（筛选候选）")},
                     {"label": I18n.tr("已评级 ★"), "mode": "rated", "tip": I18n.tr("只显示评过星的照片（≥1★）")}
                 ]
                 delegate: Rectangle {
@@ -1300,7 +1368,7 @@ Item {
             PMButton {
                 objectName: "stackToggleBtn"
                 tooltip: I18n.tr("连拍组按栈合并显示，每栈只显示代表帧，点击栈展开成员")
-                text: root.stackMode ? I18n.tr("堆叠视图 ✓") : I18n.tr("堆叠视图")
+                text: root.stackMode ? I18n.tr("堆叠视图 √") : I18n.tr("堆叠视图")
                 width: 96
                 height: 24
                 anchors.verticalCenter: parent.verticalCenter
@@ -1314,7 +1382,7 @@ Item {
             PMButton {
                 objectName: "groupToggleBtn"
                 tooltip: I18n.tr("分组视图：全部照片按文件夹分组显示，点组头可折叠/展开（0.5.55；\n与排序解耦——排序保持原样，开关状态会记住）")
-                text: root.groupMode ? I18n.tr("分组视图 ✓") : I18n.tr("分组视图")
+                text: root.groupMode ? I18n.tr("分组视图 √") : I18n.tr("分组视图")
                 width: 96
                 height: 24
                 anchors.verticalCenter: parent.verticalCenter
@@ -1332,6 +1400,7 @@ Item {
                 Menu {
                     id: sortMenu
                     objectName: "sortMenu"
+                    popupType: Popup.Item   /* 0.6.21：native Menu 在麒麟上点击项无效 */
                     width: 180
                     Repeater {
                         model: root._sortLabels
@@ -1819,6 +1888,9 @@ Item {
             active: false
             sourceComponent: VideoPlayerDialog { }
         }
+
+        /* 0.6.21：图例入口移到主窗口顶栏（窗口级 BadgeLegendDialog，
+           随时可见可点），页面内不再重复放置 */
 
         Popup {
             id: stackPopup

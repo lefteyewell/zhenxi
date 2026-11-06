@@ -346,6 +346,19 @@ class Database:
             " DELETE FROM ocr_fts WHERE rowid = old.id;"
             " END"
         )
+        # 0.6.20：疑似重复人物候选对（阶段一 Top-N 代表脸余弦扫描产物）。
+        # a/b 为 person_id，b 固定为照片数较多的一方（合并方向）；ignored
+        # 用户"忽略此对"后跨扫描持久。重聚类产生的死 id 读取时 INNER JOIN
+        # persons 自然过滤，无需清理钩子。
+        self.conn.execute(
+            "CREATE TABLE IF NOT EXISTS person_dup_candidates ("
+            " a INTEGER NOT NULL,"
+            " b INTEGER NOT NULL,"
+            " sim REAL NOT NULL,"
+            " ignored INTEGER NOT NULL DEFAULT 0,"
+            " scanned_at TEXT NOT NULL DEFAULT (datetime('now')),"
+            " PRIMARY KEY (a, b))"
+        )
 
     def close(self) -> None:
         if self.conn is not None:

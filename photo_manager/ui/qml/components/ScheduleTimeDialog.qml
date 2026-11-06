@@ -112,6 +112,7 @@ Popup {
             PMButton {
                 id: okBtn
                 text: I18n.tr("确定")
+                tooltip: I18n.tr("保存定时设置")
                 onClicked: {
                     var v = input.text.trim()
                     if (root.mode === "daily") {

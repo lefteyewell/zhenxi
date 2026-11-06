@@ -107,7 +107,7 @@ Popup {
             }
             Item { Layout.fillWidth: true }
             PMButton {
-                text: "✕"
+                text: "×"
                 width: 40
                 height: 28
                 tooltip: I18n.tr("关闭")
@@ -132,7 +132,7 @@ Popup {
                     anchors.centerIn: parent
                     spacing: Theme.spacingMedium
                     Text {
-                        text: I18n.tr("⚠ 当前环境无法内嵌播放该视频")
+                        text: I18n.tr("! 当前环境无法内嵌播放该视频")
                         font.family: Theme.fontFamily
                         font.pixelSize: 14
                         color: Theme.text
@@ -146,6 +146,7 @@ Popup {
                     PMButton {
                         objectName: "vpFallbackOpen"
                         text: I18n.tr("用系统默认播放器打开")
+                        tooltip: I18n.tr("内嵌播放失败时，改用系统安装的播放器播放")
                         onClicked: LibraryBridge.openExternal(root.rawPath)
                     }
                 }
@@ -163,6 +164,8 @@ Popup {
                 text: player.playbackState === MediaPlayer.PlayingState ? "⏸" : "▶"
                 width: 44
                 height: 30
+                tooltip: player.playbackState === MediaPlayer.PlayingState
+                         ? I18n.tr("暂停") : I18n.tr("播放")
                 onClicked: player.playbackState === MediaPlayer.PlayingState ? player.pause() : player.play()
             }
             Text {
@@ -190,6 +193,7 @@ Popup {
                 text: audio.volume > 0 ? "🔊" : "🔇"
                 width: 40
                 height: 30
+                tooltip: audio.volume > 0 ? I18n.tr("静音") : I18n.tr("恢复音量")
                 onClicked: audio.volume = audio.volume > 0 ? 0 : 0.8
             }
             /* 0.5.67：常驻兜底——部分格式（.MTS/AVCHD 等）FFmpeg 后端可能

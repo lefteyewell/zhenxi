@@ -115,7 +115,7 @@ Popup {
             }
             Item { Layout.fillWidth: true }
             PMButton {
-                text: "✕"
+                text: "×"
                 onClicked: root.close()
             }
         }
@@ -298,6 +298,7 @@ Popup {
                 objectName: "pickerOk"
                 text: root.mode === "save" ? I18n.tr("保存") : I18n.tr("打开")
                 enabled: root.okEnabled()
+                tooltip: root.mode === "save" ? I18n.tr("确认保存到所选位置") : I18n.tr("打开所选文件")
                 onClicked: root.chosen()
             }
         }

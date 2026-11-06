@@ -334,12 +334,14 @@ Dialog {
                     PMButton {
                         objectName: "libRootAddBtn"
                         text: I18n.tr("添加文件夹…")
+                        tooltip: I18n.tr("添加一个照片扫描根目录（不动文件，只登记位置）")
                         onClicked: rootPicker.openDialog("")
                     }
                     PMButton {
                         objectName: "libRootRemoveBtn"
                         text: I18n.tr("删除所选")
                         enabled: rootsList.currentIndex >= 0
+                        tooltip: I18n.tr("移除选中的扫描根目录（仅不再管理，文件不受影响）")
                         onClicked: root.removeRoot(rootsModel.get(rootsList.currentIndex).path)
                     }
                 }
@@ -360,6 +362,7 @@ Dialog {
                         objectName: "libraryRootAddManualBtn"
                         text: I18n.tr("添加")
                         height: 30
+                        tooltip: I18n.tr("把上方输入的路径加入扫描根目录")
                         onClicked: {
                             var p = rootManualInput.text.trim()
                             if (!p) return

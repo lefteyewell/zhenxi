@@ -40,6 +40,10 @@ Window {
 
     property real _scale: 1.0
     property real _baseScale: 1.0
+    /* 0.6.21：首次打开时图片区尚未布局（尺寸 0），适配被迫提前返回后
+       没有任何回调再触发 → 停在 1:1（真机反馈）。此标记表示「有待补
+       适配」，图片区尺寸变化时统一补上 */
+    property bool _needFit: false
     property real _imgW: 0
     property real _imgH: 0
     property var _ids: []
@@ -269,7 +273,7 @@ Window {
             Text {
                 Layout.fillWidth: true
                 text: I18n.tr("「排除」是选片淘汰标记：照片原样保留，不会被删除或隐藏。\n\n")
-                      + I18n.tr("· 图库顶部的「排除 ✕」筛选可列出所有排除照片，方便统一处理\n")
+                      + I18n.tr("· 图库顶部的「排除 ×」筛选可列出所有排除照片，方便统一处理\n")
                       + I18n.tr("· 搜索 flag:reject 可随时找到它们\n")
                       + I18n.tr("· 随时按 U 或「清除旗标」即可撤销")
                 wrapMode: Text.Wrap
@@ -292,6 +296,7 @@ Window {
                     text: I18n.tr("标记排除")
                     height: 30
                     emphasized: true
+                    tooltip: I18n.tr("确认把这张照片标记为「排除」（文件不动，可随时改回）")
                     onClicked: {
                         rejectConfirm.close()
                         root._setFlag("reject")
@@ -362,6 +367,16 @@ Window {
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
+            /* 0.6.21：首次布局完成（宽度从 0 变正）时补适配——打开窗口时
+               图片可能先于布局就绪，此前适配被跳过后就停在 1:1 */
+            onWidthChanged: if (image.status === Image.Ready
+                                && (root._needFit
+                                    || Math.abs(_scale - _baseScale) < 0.001))
+                                _fitWindow()
+            onHeightChanged: if (image.status === Image.Ready
+                                 && (root._needFit
+                                     || Math.abs(_scale - _baseScale) < 0.001))
+                                 _fitWindow()
 
             Image {
                 id: image
@@ -380,6 +395,11 @@ Window {
                     /* 0.5.38：载入完成即按窗口适配并居中（此前 _fitScale 上限
                        1.0 且居中用窗口坐标，点胶片条换图后错位/被胶片条遮挡） */
                     _fitWindow()
+                }
+                onStatusChanged: {
+                    /* 0.6.21：sourceSize 相同（同机同向连拍）时不触发上面的
+                       回调，状态变化兜底——保证换图必回到适应窗口 */
+                    if (status === Image.Ready) _fitWindow()
                 }
             }
             Text {
@@ -476,7 +496,7 @@ Window {
                 anchors.verticalCenter: parent.verticalCenter
                 x: 10
                 width: parent.width - 20
-                text: I18n.tr("⚠ 文件数据不完整（可能传输中断/损坏）——当前显示相机内嵌预览，导出原图前请知悉")
+                text: I18n.tr("! 文件数据不完整（可能传输中断/损坏）——当前显示相机内嵌预览，导出原图前请知悉")
                 font.family: Theme.fontFamily
                 font.pixelSize: 12
                 color: "#e65100"
@@ -539,7 +559,7 @@ Window {
 
             PMButton {
                 objectName: "viewerFilmBtn"
-                text: root.filmVisible ? I18n.tr("▤ 胶片条 ✓") : I18n.tr("▤ 胶片条")
+                text: root.filmVisible ? I18n.tr("▤ 胶片条 √") : I18n.tr("▤ 胶片条")
                 width: 92
                 height: 28
                 tooltip: I18n.tr("开关底部缩略图胶片条，点击缩略图可快速跳到那张照片")
@@ -616,7 +636,7 @@ Window {
             /* 0.5.39：旗标按钮组常显（此前只有快捷键）；排除需确认 */
             PMButton {
                 objectName: "viewerPickBtn"
-                text: I18n.tr("精选 ✓")
+                text: I18n.tr("精选 √")
                 width: 76
                 height: 28
                 tooltip: I18n.tr("给当前照片打「精选」旗标，表示选片保留（快捷键 P）")
@@ -624,7 +644,7 @@ Window {
             }
             PMButton {
                 objectName: "viewerRejectBtn"
-                text: I18n.tr("排除 ✕")
+                text: I18n.tr("排除 ×")
                 width: 76
                 height: 28
                 tooltip: I18n.tr("把当前照片标记为「排除」（选片淘汰标记，照片不会删除；点击后需确认）")
@@ -654,19 +674,26 @@ Window {
 
     /* 窗口大小变化：若当前处于"适应窗口"状态则重新适配（手动缩放状态不干扰） */
     onWidthChanged: if (visible && image.status === Image.Ready
-                        && Math.abs(_scale - _baseScale) < 0.001) _fitWindow()
+                        && (root._needFit
+                            || Math.abs(_scale - _baseScale) < 0.001)) _fitWindow()
     onHeightChanged: if (visible && image.status === Image.Ready
-                        && Math.abs(_scale - _baseScale) < 0.001) _fitWindow()
+                         && (root._needFit
+                             || Math.abs(_scale - _baseScale) < 0.001)) _fitWindow()
+    /* 0.6.21：窗口显示时兜底补适配（图片先于 show() 就绪的场景） */
+    onVisibleChanged: if (visible && image.status === Image.Ready
+                          && (root._needFit
+                              || Math.abs(_scale - _baseScale) < 0.001)) _fitWindow()
 
     function _fitWindow() {
         if (!image.sourceSize.width) return
+        var availW = imgArea.width
+        var availH = imgArea.height
+        if (availW <= 0 || availH <= 0) { root._needFit = true; return }
+        root._needFit = false
         _imgW = image.sourceSize.width
         _imgH = image.sourceSize.height
         /* 0.5.38：以图片区（imgArea）为基准适配并居中——此前用整个窗口坐标
            计算，图片垂直方向偏下，底部被胶片条遮挡、看起来不居中 */
-        var availW = imgArea.width
-        var availH = imgArea.height
-        if (availW <= 0 || availH <= 0) return
         _baseScale = Math.min(availW / _imgW, availH / _imgH)
         _scale = _baseScale
         _center()

@@ -417,6 +417,7 @@ Popup {
             PMButton {
                 objectName: "advSearchBtn"
                 text: I18n.tr("搜索")
+                tooltip: I18n.tr("按当前条件执行搜索")
                 onClicked: {
                     root.searchRequested(root.buildQuery())
                     root.close()
@@ -424,6 +425,7 @@ Popup {
             }
             PMButton {
                 text: I18n.tr("清空")
+                tooltip: I18n.tr("清空全部搜索条件")
                 onClicked: {
                     keywordField.text = ""
                     clipField.text = ""

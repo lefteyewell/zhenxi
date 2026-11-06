@@ -33,7 +33,8 @@ class ThemeController(QObject):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._settings = QSettings()
-        self._dark = self._settings.value("ui/dark", True, type=bool)
+        # 0.6.21：默认浅色（用户反馈；已存过设置的旧用户不受影响）
+        self._dark = self._settings.value("ui/dark", False, type=bool)
         self._scheme_index = int(self._settings.value("ui/schemeIndex", 0))
 
     @Property(bool, notify=darkChanged)

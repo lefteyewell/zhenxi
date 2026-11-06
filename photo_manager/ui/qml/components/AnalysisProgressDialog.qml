@@ -161,7 +161,7 @@ Popup {
                     Text {
                         anchors.verticalCenter: parent.verticalCenter
                         width: 14
-                        text: index + 1 < root.chainCurrent ? "✓"
+                        text: index + 1 < root.chainCurrent ? "√"
                               : (index + 1 === root.chainCurrent ? "▶" : "·")
                         color: index + 1 < root.chainCurrent ? "#2e7d32"
                                : (index + 1 === root.chainCurrent ? Theme.primary : Theme.textDim)

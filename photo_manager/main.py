@@ -157,7 +157,10 @@ class TrayController(QObject):
         self._tray = tray
 
     def _on_activated(self, reason) -> None:
-        if reason == QSystemTrayIcon.DoubleClick:
+        # 0.6.21：麒麟等 Linux 桌面的托盘普遍只发 Trigger（单击）、不发
+        # DoubleClick，导致「双击恢复窗口」在真机上无效——左键单击与双击
+        # 一律显示主窗口（右键 Context 菜单不受影响）。
+        if reason in (QSystemTrayIcon.Trigger, QSystemTrayIcon.DoubleClick):
             self.showMainWindow()
 
 def default_db_path() -> str:

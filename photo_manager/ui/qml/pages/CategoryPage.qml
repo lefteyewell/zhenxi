@@ -35,11 +35,15 @@ Item {
     signal renameRequested(int personId, string name)
     signal mergeRequested(int personId, string name)
     signal batchMergeRequested(var ids)
+    signal dupRequested()   /* 0.6.20 疑似重复人物（仅 people） */
+    signal dupForRequested(int pid)   /* 0.6.21 锚点扫描：以选中人物为基准查疑似重复 */
 
     ListModel { id: itemsModel }
     property var selectedIds: []
     property bool _batchMode: false
     property bool _confirmDelete: false
+    /* 0.6.20：点选的人物 id——刷新/弹窗操作后恢复高亮用（跨刷新保持选中态） */
+    property int _lastClickedId: -1
     /* 0.6.15：人物列表分页（每页 300，滚动到底自动追加） */
     property int _pplOffset: 0
     property int _pplTotal: 0
@@ -113,6 +117,7 @@ Item {
             root._pplOffset = 0
             root._pplTotal = 0
             root._appendPeoplePage()
+            root._restoreHighlight()
             return
         }
         var arr = []
@@ -146,8 +151,24 @@ Item {
         countText.text = root._pplTotal + I18n.tr(" 项")
     }
 
+    /* 0.6.20：刷新后恢复点选高亮（重命名/合并等弹窗操作触发 refresh 时，
+       ListModel.clear 会把 currentIndex 连带 delegate 一起重建归零，
+       用户关掉弹窗就"看不出刚才选的是谁"。按 _lastClickedId 找回索引；
+       该人物尚未随分页载入时静默跳过，滚到载入页再恢复意义不大）。 */
+    function _restoreHighlight() {
+        if (root.kind !== "people" || root._lastClickedId < 0)
+            return
+        for (var i = 0; i < itemsModel.count; ++i) {
+            if (itemsModel.get(i).id === root._lastClickedId) {
+                gridView.currentIndex = i
+                gridView.positionViewAtIndex(i, GridView.Contain)
+                return
+            }
+        }
+    }
+
     function _icon() {
-        if (kind === "people") return "👤"
+        if (kind === "people") return "◎"
         if (kind === "locations") return "📍"
         if (kind === "tags") return "#"
         return "📷"
@@ -157,37 +178,43 @@ Item {
         anchors.fill: parent
         spacing: 0
 
-        Row {
+        /* 0.6.21 顶栏重写：普通 Row 中 Layout 附加属性无效（弹性填充失效
+           → 右侧大空白；标题不限宽 → 按钮被挤出），改 RowLayout */
+        RowLayout {
             Layout.fillWidth: true
             Layout.preferredHeight: 48
-            leftPadding: Theme.spacingMedium
-            rightPadding: Theme.spacingMedium
+            Layout.leftMargin: Theme.spacingMedium
+            Layout.rightMargin: Theme.spacingMedium
             spacing: Theme.spacingSmall
 
             Text {
                 id: titleText
                 text: root.title
-                anchors.verticalCenter: parent.verticalCenter
+                Layout.alignment: Qt.AlignVCenter
+                Layout.maximumWidth: 320
                 font.family: Theme.fontFamily
                 font.pixelSize: 18
                 font.weight: Font.DemiBold
                 color: Theme.text
+                elide: Text.ElideMiddle
             }
             Text {
                 id: countText
-                anchors.verticalCenter: parent.verticalCenter
+                Layout.alignment: Qt.AlignVCenter
                 font.family: Theme.fontFamily
                 font.pixelSize: 12
                 color: Theme.textDim
             }
-            Item { Layout.fillWidth: true; width: 10 }
+            Item { Layout.fillWidth: true; Layout.fillHeight: true }
             PMButton {
                 objectName: "categorySortBtn"
                 tooltip: I18n.tr("切换列表排序方式（数量/名称）")
                 text: I18n.tr("排序 ▾")
                 height: 30
+                Layout.alignment: Qt.AlignVCenter
                 Menu {
                     id: categorySortMenu
+                    popupType: Popup.Item   /* 0.6.21：native Menu 在麒麟上点击项无效 */
                     MenuItem { text: I18n.tr("按数量（多→少）"); checkable: true; checked: root.sortMode === 0
                                onTriggered: { root.sortMode = 0; root.refresh() } }
                     MenuItem { text: I18n.tr("按名称（A→Z）"); checkable: true; checked: root.sortMode === 1
@@ -202,12 +229,24 @@ Item {
                 width: 72
                 height: 30
                 visible: kind === "people"
-                anchors.verticalCenter: parent.verticalCenter
+                Layout.alignment: Qt.AlignVCenter
                 onClicked: root.enterBatch()
+            }
+            /* 0.6.20：疑似重复人物扫描入口（阶段一 Top-N 代表脸余弦） */
+            PMButton {
+                objectName: "dupPersonsBtn"
+                tooltip: I18n.tr("扫描未命名人物中可能是同一个人的组合，支持批量合并")
+                text: I18n.tr("疑似重复")
+                width: 84
+                height: 30
+                visible: kind === "people"
+                Layout.alignment: Qt.AlignVCenter
+                onClicked: root.dupRequested()
             }
             Text {
                 text: root.hint
-                anchors.verticalCenter: parent.verticalCenter
+                Layout.alignment: Qt.AlignVCenter
+                Layout.maximumWidth: 260
                 font.family: Theme.fontFamily
                 font.pixelSize: 11
                 color: Theme.textDim
@@ -231,30 +270,43 @@ Item {
                 color: Theme.surface
                 border.width: 1
                 border.color: Theme.primary
-                Row {
+                /* 0.6.21：普通 Row 中 Layout.fillWidth 无效导致按钮不靠右
+                   （错位），改 RowLayout；勾选 1 个人物时提供锚点扫描入口 */
+                RowLayout {
                     anchors.fill: parent
                     anchors.leftMargin: Theme.spacingMedium
                     anchors.rightMargin: Theme.spacingMedium
                     spacing: 8
-                    visible: root.selectedIds.length >= 2
+                    visible: root.selectedIds.length >= 1
                     Text {
-                        anchors.verticalCenter: parent.verticalCenter
+                        Layout.alignment: Qt.AlignVCenter
                         text: I18n.tr("已选 ") + root.selectedIds.length + I18n.tr(" 个人物")
                         font.family: Theme.fontFamily
                         font.pixelSize: 12
                         color: Theme.text
                     }
-                    Item { Layout.fillWidth: true; width: 10 }
+                    Item { Layout.fillWidth: true; Layout.fillHeight: true }
+                    PMButton {
+                        objectName: "categoryDupForBtn"
+                        visible: root.selectedIds.length === 1
+                        tooltip: I18n.tr("以选中人物为基准，扫描其余未命名人物中可能是同一人的组合（轻量，只与这一个人比较）")
+                        text: I18n.tr("查找疑似重复")
+                        height: 26
+                        Layout.alignment: Qt.AlignVCenter
+                        onClicked: root.dupForRequested(root.selectedIds[0])
+                    }
                     PMButton {
                         objectName: "categoryBatchMergeBtn"
+                        visible: root.selectedIds.length >= 2
                         tooltip: I18n.tr("把勾选的人物合并到第一个（照片归属一并转移）")
                         text: I18n.tr("合并选中（") + root.selectedIds.length + I18n.tr(" 个）")
                         height: 26
-                        anchors.verticalCenter: parent.verticalCenter
+                        Layout.alignment: Qt.AlignVCenter
                         onClicked: root.batchMergeRequested(root.selectedIds)
                     }
                     PMButton {
                         id: batchDeleteBtn
+                        visible: root.selectedIds.length >= 2
                         objectName: "categoryBatchDeleteBtn"
                         tooltip: I18n.tr("删除选中的人物：人脸回归未指派（可重新聚类或手动指派），照片不受影响")
                         text: root._confirmDelete
@@ -262,7 +314,7 @@ Item {
                               : I18n.tr("删除选中人物")
                         height: 26
                         emphasized: root._confirmDelete
-                        anchors.verticalCenter: parent.verticalCenter
+                        Layout.alignment: Qt.AlignVCenter
                         onClicked: {
                             if (!root._confirmDelete) {
                                 root._confirmDelete = true
@@ -288,14 +340,14 @@ Item {
                         text: I18n.tr("取消")
                         width: 64
                         height: 26
-                        anchors.verticalCenter: parent.verticalCenter
+                        Layout.alignment: Qt.AlignVCenter
                         onClicked: { root.selectedIds = []; root.updateBatchBar() }
                     }
                 }
                 Text {
                     anchors.centerIn: parent
-                    visible: root.selectedIds.length < 2
-                    text: I18n.tr("勾选两个以上人物，可批量合并 / 转移")
+                    visible: root.selectedIds.length === 0
+                    text: I18n.tr("勾选人物：1 个可查找疑似重复，2 个以上可批量合并 / 转移")
                     font.family: Theme.fontFamily
                     font.pixelSize: 12
                     color: Theme.textDim
@@ -348,7 +400,7 @@ Item {
                             Text {
                                 anchors.centerIn: parent
                                 visible: root.selectedIds.indexOf(model.id) >= 0
-                                text: "✓"
+                                text: "√"
                                 font.pixelSize: 12
                                 color: Theme.textOnPrimary
                             }
@@ -444,6 +496,7 @@ Item {
                                 root.toggleSelect(model.id)
                                 return
                             }
+                            if (kind === "people") root._lastClickedId = model.id
                             listView.currentIndex = index
                             root.itemClicked({
                                 name: model.name,
@@ -467,7 +520,7 @@ Item {
                         PMButton {
                             objectName: "personRenameBtn"
                             tooltip: I18n.tr("给该人物起名（显示名，不影响文件）")
-                            text: I18n.tr("✎ 重命名")
+                            text: I18n.tr("≡ 重命名")
                             width: 92
                             height: 28
                             visible: kind === "people" && (model.id || 0) > 0
@@ -476,7 +529,7 @@ Item {
                         PMButton {
                             objectName: "tagRenameBtn"
                             tooltip: I18n.tr("重命名标签（含子标签层级路径）")
-                            text: I18n.tr("✎ 重命名")
+                            text: I18n.tr("≡ 重命名")
                             width: 92
                             height: 28
                             visible: kind === "tags"
@@ -485,7 +538,7 @@ Item {
                         PMButton {
                             objectName: "personMergeBtn"
                             tooltip: I18n.tr("把该人物并入另一人物（同一个人被识别成两个簇时用）")
-                            text: I18n.tr("⊕ 合并")
+                            text: I18n.tr("＋ 合并")
                             width: 76
                             height: 28
                             visible: kind === "people" && (model.id || 0) > 0
@@ -494,7 +547,7 @@ Item {
                         PMButton {
                             objectName: "tagMergeBtn"
                             tooltip: I18n.tr("把该标签并入另一个标签（照片标签记录一并转移）")
-                            text: I18n.tr("⊕ 合并")
+                            text: I18n.tr("＋ 合并")
                             width: 76
                             height: 28
                             visible: kind === "tags"
@@ -538,6 +591,19 @@ Item {
                     height: gridView.cellHeight
                     color: gridView.currentIndex === index ? Theme.hover : "transparent"
                     radius: Theme.radiusMedium
+                    /* 0.6.20：选中态加强——仅 hover 色在密集网格里太弱，
+                       加 2px 主色描边，弹窗往返后一眼可辨当前人物 */
+                    border.width: gridView.currentIndex === index ? 2 : 0
+                    border.color: Theme.primary
+                    /* 0.6.21：卡片级悬停提示（底部小按钮因防闪烁禁用了
+                       hover，自身无法显示 tooltip，改在卡片层说明） */
+                    HoverHandler { id: cardHover }
+                    ToolTip.visible: cardHover.hovered
+                    ToolTip.delay: 550
+                    ToolTip.timeout: 4000
+                    ToolTip.text: root._batchMode
+                        ? I18n.tr("点击勾选 / 取消该人物")
+                        : I18n.tr("点击查看该人物的照片；悬停底部可重命名 / 合并")
 
                     Rectangle {
                         id: gAvatar
@@ -564,7 +630,7 @@ Item {
                         Text {
                             anchors.centerIn: parent
                             visible: !parent.hasAvatar
-                            text: "👤"
+                            text: "◎"
                             font.pixelSize: 34
                         }
                         /* 多选勾选框（左上角） */
@@ -578,7 +644,7 @@ Item {
                             Text {
                                 anchors.centerIn: parent
                                 visible: root.selectedIds.indexOf(model.id) >= 0
-                                text: "✓"; font.pixelSize: 13; color: Theme.textOnPrimary
+                                text: "√"; font.pixelSize: 13; color: Theme.textOnPrimary
                             }
                             MouseArea {
                                 anchors.fill: parent
@@ -629,6 +695,7 @@ Item {
                         cursorShape: Qt.PointingHandCursor
                         onClicked: {
                             if (root._batchMode) { root.toggleSelect(model.id); return }
+                            root._lastClickedId = model.id
                             gridView.currentIndex = index
                             root.itemClicked({
                                 name: model.name, id: model.id,

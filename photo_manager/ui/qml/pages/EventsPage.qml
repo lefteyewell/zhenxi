@@ -80,6 +80,7 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
                 Menu {
                     id: eventSortMenu
+                    popupType: Popup.Item   /* 0.6.21：native Menu 在麒麟上点击项无效 */
                     MenuItem { text: I18n.tr("按日期（新→旧）"); checkable: true; checked: root.sortMode === 0
                                onTriggered: { root.sortMode = 0; root.refresh() } }
                     MenuItem { text: I18n.tr("按照片数（多→少）"); checkable: true; checked: root.sortMode === 1

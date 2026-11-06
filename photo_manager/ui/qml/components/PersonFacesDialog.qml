@@ -183,8 +183,22 @@ Dialog {
                 model: faceModel
 
                 delegate: Item {
+                    id: faceCell
                     width: faceGrid.cellWidth
                     height: faceGrid.cellHeight
+
+                    /* 0.6.20：HQ 裁剪按需构建——delegate 就位（GridView 只实例化
+                       可见项）时请求，未就绪先显示缩略图裁剪，faceHqReady 后换源。
+                       合影小脸不再 2× 放大发糊。 */
+                    property var hq: null
+                    Component.onCompleted: LibraryBridge.requestFaceHq(model.faceId)
+                    Connections {
+                        target: LibraryBridge
+                        function onFaceHqReady(fid) {
+                            if (fid === model.faceId)
+                                faceCell.hq = LibraryBridge.faceAvatarHq(model.faceId)
+                        }
+                    }
 
                     Rectangle {
                         anchors.fill: parent
@@ -211,10 +225,14 @@ Dialog {
                             clip: true
                             Image {
                                 anchors.fill: parent
-                                source: model.avatarSrc
-                                        ? "file:///" + String(model.avatarSrc).replace(/\\/g, "/") : ""
-                                sourceClipRect: Qt.rect(model.avatarX || 0, model.avatarY || 0,
-                                                        model.avatarW || 1, model.avatarH || 1)
+                                source: faceCell.hq
+                                        ? "file:///" + String(faceCell.hq.path).replace(/\\/g, "/")
+                                        : (model.avatarSrc
+                                           ? "file:///" + String(model.avatarSrc).replace(/\\/g, "/") : "")
+                                sourceClipRect: faceCell.hq
+                                                ? Qt.rect(0, 0, faceCell.hq.w, faceCell.hq.h)
+                                                : Qt.rect(model.avatarX || 0, model.avatarY || 0,
+                                                          model.avatarW || 1, model.avatarH || 1)
                                 fillMode: Image.PreserveAspectCrop
                                 asynchronous: true
                                 cache: false
@@ -232,7 +250,7 @@ Dialog {
                                 border.color: "white"
                                 Text {
                                     anchors.centerIn: parent
-                                    text: "✓"
+                                    text: "√"
                                     font.pixelSize: 11
                                     font.weight: Font.Bold
                                     color: "white"
@@ -289,12 +307,14 @@ Dialog {
                 text: I18n.tr("全选")
                 height: 28
                 enabled: faceModel.count > 0
+                tooltip: I18n.tr("勾选当前列表全部人脸")
                 onClicked: root.selectAllFaces()
             }
             PMButton {
                 text: I18n.tr("反选")
                 height: 28
                 enabled: faceModel.count > 0
+                tooltip: I18n.tr("勾选状态互换（已勾的取消、未勾的勾上）")
                 onClicked: root.invertFaceSelection()
             }
             Item { Layout.fillWidth: true }
@@ -303,6 +323,7 @@ Dialog {
                 text: I18n.tr("归为新人物")
                 height: 30
                 enabled: root.checkedFaceIds.length > 0
+                tooltip: I18n.tr("把勾选人脸归为一个新人物（照片不动，之后可重命名）")
                 onClicked: {
                     var n = LibraryBridge.moveFacesToPerson(root.checkedFaceIds, -1, "")
                     if (n > 0) {
@@ -320,6 +341,7 @@ Dialog {
                 text: I18n.tr("并入其他人物…")
                 height: 30
                 enabled: root.checkedFaceIds.length > 0
+                tooltip: I18n.tr("把勾选人脸移到所选人物（用于拆分误并的聚类）")
                 onClicked: {
                     picker.rebuildTarget()
                     if (targetModel.count === 0) {
@@ -340,6 +362,7 @@ Dialog {
                 height: 30
                 enabled: root.checkedFaceIds.length > 0
                 emphasized: root.confirmPurge
+                tooltip: I18n.tr("剔除误检的人脸标注（仅删标注，照片不受影响）")
                 onClicked: {
                     if (!root.confirmPurge) {
                         root.confirmPurge = true

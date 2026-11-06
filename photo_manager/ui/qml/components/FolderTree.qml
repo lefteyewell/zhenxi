@@ -197,7 +197,7 @@ Item {
 
         Text {                // 全选勾
             visible: checkState === 2 || selected
-            text: "✓"
+            text: "√"
             color: Theme.textOnPrimary
             font.family: Theme.fontFamily
             font.pixelSize: 10

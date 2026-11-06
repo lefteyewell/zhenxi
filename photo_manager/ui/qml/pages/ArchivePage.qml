@@ -145,7 +145,7 @@ Item {
                                 visible: thumbImg.status !== Image.Ready
                                 Text {
                                     anchors.centerIn: parent
-                                    text: modelData.faceCount > 0 ? "👤×" + modelData.faceCount : "?"
+                                    text: modelData.faceCount > 0 ? "◎×" + modelData.faceCount : "?"
                                     font.pixelSize: 18
                                     color: Theme.textDim
                                 }

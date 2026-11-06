@@ -86,6 +86,7 @@ Item {
                 height: 30
                 Menu {
                     id: albumSortMenu
+                    popupType: Popup.Item   /* 0.6.21：native Menu 在麒麟上点击项无效 */
                     MenuItem { text: I18n.tr("按创建顺序"); checkable: true; checked: root.sortMode === 0
                                onTriggered: { root.sortMode = 0; root.refresh() } }
                     MenuItem { text: I18n.tr("按名称（A→Z）"); checkable: true; checked: root.sortMode === 1

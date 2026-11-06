@@ -151,7 +151,7 @@ Popup {
             }
             Item { Layout.fillWidth: true }
             PMButton {
-                text: "✕"
+                text: "×"
                 onClicked: root.close()
             }
         }
@@ -241,6 +241,7 @@ Popup {
             PMButton {
                 visible: root.searchActive
                 text: I18n.tr("清除")
+                tooltip: I18n.tr("清除目录搜索关键字")
                 onClicked: folderSearchField.text = ""
             }
         }
@@ -291,7 +292,7 @@ Popup {
                         Text {
                             anchors.centerIn: parent
                             visible: isSelected
-                            text: "✓"
+                            text: "√"
                             font.pixelSize: 11
                             color: "white"
                         }
@@ -379,6 +380,7 @@ Popup {
                 objectName: "pickerClearSel"
                 text: I18n.tr("清空选择")
                 visible: false
+                tooltip: I18n.tr("清空已勾选的全部目录")
                 onClicked: root.clearSelection()
             }
             PMButton {

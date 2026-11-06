@@ -540,7 +540,7 @@ Popup {
         var arr = LibraryBridge.analysisStatus()
         var parts = []
         for (var i = 0; i < arr.length; ++i)
-            parts.push(arr[i].stage + (arr[i].done ? "✓" : "·"))
+            parts.push(arr[i].stage + (arr[i].done ? "√" : "·"))
         autoStateText.text = I18n.tr("分析状态：") + parts.join(" ")
     }
 

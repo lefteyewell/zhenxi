@@ -168,6 +168,7 @@ Popup {
                     objectName: "firstRunPickRootBtn"
                     text: I18n.tr("选择根目录…")
                     height: 26
+                    tooltip: I18n.tr("选择照片库根文件夹（扫描入口）")
                     onClicked: {
                         var cur = LibraryBridge.libraryRoots().split("\n")[0] || ""
                         var p = LibraryBridge.pickFolder(I18n.tr("选择照片库根目录"), cur)
@@ -263,6 +264,7 @@ Popup {
                 text: I18n.tr("开始使用")
                 height: 32
                 emphasized: true
+                tooltip: I18n.tr("完成引导并进入软件")
                 onClicked: {
                     /* 明确点击「开始使用」= 结束引导（无论是否勾选"不再显示"） */
                     if (LibraryBridge) LibraryBridge.setFirstRunDone()

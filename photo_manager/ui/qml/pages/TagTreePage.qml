@@ -55,9 +55,14 @@ Item {
     }
 
     function toggleCheck(path) {
-        var idx = root.checkedPaths.indexOf(path)
-        if (idx >= 0) root.checkedPaths.splice(idx, 1)
-        else root.checkedPaths.push(path)
+        /* 0.6.20 修复「多选不能勾选」：var 属性就地 push/splice 不触发绑定更新
+           （CategoryPage.toggleSelect 同款教训）——必须整体替换新数组，
+           否则勾选框 checked 绑定永不重绘，用户看到的就是勾不上。 */
+        var arr = root.checkedPaths.slice()
+        var idx = arr.indexOf(path)
+        if (idx >= 0) arr.splice(idx, 1)
+        else arr.push(path)
+        root.checkedPaths = arr
         root.updateBatchBar()
     }
 
@@ -176,7 +181,10 @@ Item {
             }
         }
 
-        /* 拖到此处 = 移到顶层 */
+        /* 拖到此处 = 移到顶层。
+           0.6.20：固定占位（visible 恒真）——此前仅拖拽时插入行，
+           ColumnLayout 整体下移 34px，用户按下瞬间标签行位置突变，
+           看不出点中了哪个（麒麟真机反馈）。非拖拽时半透明弱化。 */
         Rectangle {
             id: topDrop
             Layout.fillWidth: true
@@ -184,16 +192,16 @@ Item {
             Layout.leftMargin: Theme.spacingMedium
             Layout.rightMargin: Theme.spacingMedium
             radius: Theme.radiusSmall
+            opacity: root.draggingPath !== "" ? 1.0 : 0.45
             color: topDropArea.containsDrag ? Theme.hover : Theme.surfaceAlt
             border.width: 1
             border.color: topDropArea.containsDrag ? Theme.primary : Theme.divider
-            visible: root.draggingPath !== ""
             Text {
                 anchors.centerIn: parent
                 text: I18n.tr("拖到此处 → 变为一级标签（移到顶层）")
                 font.family: Theme.fontFamily
                 font.pixelSize: 11
-                color: Theme.textDim
+                color: root.draggingPath !== "" ? Theme.text : Theme.textDim
             }
             DropArea {
                 id: topDropArea
@@ -246,7 +254,11 @@ Item {
                     RowLayout {
                         anchors.fill: parent
                         anchors.leftMargin: Theme.spacingMedium + (model.depth || 0) * 18
-                        anchors.rightMargin: Theme.spacingMedium
+                        /* 0.6.21：右侧常驻「重命名/合并」按钮约 180px，行内容
+                           此前直接被盖住；非多选时留出按钮宽度，多选时按钮
+                           隐藏、空间还给内容（同时消除多选勾选重叠错位） */
+                        anchors.rightMargin: root.multiSelect
+                            ? Theme.spacingMedium : 190
                         spacing: Theme.spacingSmall
 
                         Rectangle {
@@ -260,7 +272,7 @@ Item {
                             Text {
                                 anchors.centerIn: parent
                                 visible: root.checkedPaths.indexOf(model.path) >= 0
-                                text: "✓"
+                                text: "√"
                                 font.pixelSize: 12
                                 color: Theme.textOnPrimary
                             }
@@ -271,7 +283,7 @@ Item {
                         }
 
                         Text {
-                            text: "⋮"
+                            text: "≡"
                             font.pixelSize: 14
                             color: Theme.textDim
                         }
@@ -367,6 +379,9 @@ Item {
 
                     Row {
                         id: actionButtons
+                        /* 0.6.21：多选模式下隐藏（勾选框出现后与行内容重叠
+                           错位的来源之一；批量操作走顶部批量栏） */
+                        visible: !root.multiSelect
                         anchors.right: parent.right
                         anchors.rightMargin: Theme.spacingSmall
                         anchors.verticalCenter: parent.verticalCenter
@@ -376,7 +391,7 @@ Item {
                         PMButton {
                             objectName: "tagRenameBtn"
                             tooltip: I18n.tr("重命名标签")
-                            text: I18n.tr("✎ 重命名")
+                            text: I18n.tr("≡ 重命名")
                             width: 92
                             height: 28
                             onClicked: root.renameRequested(model.path)
@@ -384,7 +399,7 @@ Item {
                         PMButton {
                             objectName: "tagMergeBtn"
                             tooltip: I18n.tr("把该标签并入另一个标签")
-                            text: I18n.tr("⊕ 合并")
+                            text: I18n.tr("＋ 合并")
                             width: 76
                             height: 28
                             onClicked: root.mergeRequested(model.path)

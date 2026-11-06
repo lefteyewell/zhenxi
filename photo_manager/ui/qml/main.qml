@@ -674,6 +674,17 @@ ApplicationWindow {
                 ToolTip.text: I18n.tr("版本、许可与开源信息")
                 onTriggered: aboutDialog.open()
             }
+            /* 0.6.21：许可与依赖随包文本就地查看（原先只有文件没有入口） */
+            MenuItem {
+                objectName: "btnLicenseDoc"
+                text: I18n.tr("开源许可 (GPLv3)…")
+                onTriggered: textDocDialog.openDoc(I18n.tr("开源许可"), "LICENSE")
+            }
+            MenuItem {
+                objectName: "btnNoticesDoc"
+                text: I18n.tr("第三方依赖清单…")
+                onTriggered: textDocDialog.openDoc(I18n.tr("第三方依赖清单"), "THIRD-PARTY-NOTICES.md")
+            }
         }
     }
 
@@ -748,7 +759,7 @@ ApplicationWindow {
                     PMButton {
                         objectName: "tbExport"
                         tooltip: I18n.tr("导出所选照片，可选格式与分辨率")
-                        text: I18n.tr("↗ 导出")
+                        text: I18n.tr("↑ 导出")
                         width: 78
                         height: 30
                         enabled: gallery.selectedIds.length > 0
@@ -757,7 +768,7 @@ ApplicationWindow {
                     PMButton {
                         objectName: "tbTag"
                         tooltip: I18n.tr("给所选照片批量添加标签")
-                        text: I18n.tr("🏷 标签")
+                        text: I18n.tr("# 标签")
                         width: 78
                         height: 30
                         enabled: gallery.selectedIds.length > 0
@@ -770,10 +781,20 @@ ApplicationWindow {
                     PMButton {
                         objectName: "tbTools"
                         tooltip: I18n.tr("打开工具中心（分析、标签、备份、维护）")
-                        text: I18n.tr("⚙ 工具")
+                        text: I18n.tr("≡ 工具")
                         width: 78
                         height: 30
                         onClicked: toolsDialog.open()
+                    }
+                    /* 0.6.21：图例入口固定在窗口顶栏（原在照片列表工具栏内），
+                       任意页面随时可查看照片标志含义 */
+                    PMButton {
+                        objectName: "tbBadgeLegend"
+                        tooltip: I18n.tr("查看照片上各类标志（人脸数/文字/旗标/评级等）的含义")
+                        text: I18n.tr("图例")
+                        width: 58
+                        height: 30
+                        onClicked: badgeLegendDialog.open()
                     }
                 }
 
@@ -796,6 +817,26 @@ ApplicationWindow {
                         anchors.rightMargin: 8
                         spacing: 6
 
+                        /* 0.6.21：人脸搜图入口提到搜索栏左侧（原藏在搜索菜单
+                           深处，用户反馈找不到）——上传一张含人脸的图片按脸找照片 */
+                        Text {
+                            id: faceSearchBtn
+                            objectName: "faceSearchBtn"
+                            text: "◎"
+                            font.pixelSize: 15
+                            color: faceSearchMa.containsMouse ? Theme.primary : Theme.textDim
+                            Layout.alignment: Qt.AlignVCenter
+                            MouseArea {
+                                id: faceSearchMa
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: faceSearchPicker.openDialog()
+                            }
+                            ToolTip.visible: faceSearchMa.containsMouse
+                            ToolTip.delay: 500
+                            ToolTip.text: I18n.tr("人脸搜图：上传一张含人脸的图片，找出库内含同一人物的照片")
+                        }
                         TextField {
                             id: searchField
                             objectName: "searchField"
@@ -837,7 +878,7 @@ ApplicationWindow {
                         Text {
                             id: searchGoBtn
                             objectName: "searchGoBtn"
-                            text: "⏎"
+                            text: "→"
                             font.pixelSize: 14
                             color: searchField.text.length > 0 ? Theme.primary : Theme.textDim
                             /* 0.5.28：回车图标可点击（此前是纯 Text，点击无反应） */
@@ -846,6 +887,12 @@ ApplicationWindow {
                                 cursorShape: Qt.PointingHandCursor
                                 onClicked: searchField.accepted()
                             }
+                            /* 0.6.21：补悬停提示 */
+                            HoverHandler { id: searchGoHover }
+                            ToolTip.visible: searchGoHover.hovered
+                            ToolTip.delay: 550
+                            ToolTip.timeout: 4000
+                            ToolTip.text: I18n.tr("执行搜索（等同回车）")
                         }
                     }
 
@@ -903,6 +950,7 @@ ApplicationWindow {
 
                 PMButton {
                     text: Theme.dark ? I18n.tr("浅色") : I18n.tr("深色")
+                    tooltip: I18n.tr("切换浅色/深色主题")
                     onClicked: ThemeController.toggleDark()
                 }
 
@@ -1342,6 +1390,12 @@ ApplicationWindow {
                         peoplePage.refresh()
                         peoplePage.selectedIds = []
                         peoplePage.updateBatchBar()
+                    }
+                    onDupRequested: dupPersonsDialog.openDialog()
+                    /* 0.6.21 锚点扫描：先扫选中人物（后台），再开弹窗看结果 */
+                    onDupForRequested: (pid) => {
+                        LibraryBridge.dupScanFor(pid)
+                        dupPersonsDialog.openDialog()
                     }
                 }
 
@@ -2185,15 +2239,48 @@ ApplicationWindow {
         }
     }
 
-    /* 0.5.37：上传人脸搜图——选一张含人脸的图片，与库内人脸向量比对 */
+    /* 0.5.37：上传人脸搜图——选一张含人脸的图片，与库内人脸向量比对。
+       0.6.21：先检测全部人脸（detectUploadFaces），1 张直接搜、
+       多张弹人脸选择器、0 张/出错提示。 */
     FilePickerDialog {
         id: faceSearchPicker
         objectName: "faceSearchPicker"
         dialogTitle: I18n.tr("选择含人脸的图片用于搜索")
         mode: "open"
+        property string pendingPath: ""
         onFileChosen: (path) => {
+            pendingPath = path
+            statusText.text = I18n.tr("正在检测图中人脸…")
+            LibraryBridge.detectUploadFaces(path)
+        }
+    }
+
+    /* 0.6.21：上传人脸搜图的人脸选择器（多张脸时挑一张） */
+    FacePickerDialog {
+        id: facePickerDialog
+        onFacePicked: (path, index) => {
             statusText.text = I18n.tr("正在按人脸搜索照片 …（完成后自动跳转）")
-            LibraryBridge.searchByFace(path)
+            LibraryBridge.searchByFace(path, index)
+        }
+    }
+
+    Connections {
+        target: LibraryBridge
+        function onUploadFacesDetected(json) {
+            var r = JSON.parse(json)
+            if (r.path !== faceSearchPicker.pendingPath)
+                return  /* 过期结果（用户已改选其他图片） */
+            if (r.count === 1) {
+                statusText.text = I18n.tr("正在按人脸搜索照片 …（完成后自动跳转）")
+                LibraryBridge.searchByFace(r.path, r.faces[0].index)
+            } else if (r.count > 1) {
+                statusText.text = I18n.tr("检测到 ") + r.count + I18n.tr(" 张人脸，请选择要搜索的一张")
+                facePickerDialog.openWith(r)
+            } else if (r.count === 0) {
+                statusText.text = I18n.tr("图中未检测到人脸，请换一张含清晰人脸的图片")
+            } else {
+                statusText.text = I18n.tr("人脸检测失败：") + (r.error || "")
+            }
         }
     }
 
@@ -2207,6 +2294,24 @@ ApplicationWindow {
     PersonFacesDialog {
         id: personFacesDialog
         onMessageRequested: (msg, kind) => toastLayer.show(msg, kind)
+    }
+
+    /* 0.6.20：疑似重复人物（Top-N 代表脸余弦候选对，合并/忽略） */
+    DuplicatePersonsDialog {
+        id: dupPersonsDialog
+        onMessageRequested: (msg, kind) => toastLayer.show(msg, kind)
+        onVisibleChanged: if (visible) peoplePage.refresh()
+    }
+
+    /* 0.6.21：照片标志图例——窗口级声明（Popup 需在窗口级，见 popupGate
+       约定），入口固定在顶栏「图例」按钮，任意页面随时可看 */
+    BadgeLegendDialog {
+        id: badgeLegendDialog
+    }
+
+    /* 0.6.21：随包文本查看器（帮助菜单 → 开源许可 / 第三方依赖清单） */
+    TextDocDialog {
+        id: textDocDialog
     }
 
     /* 0.5.53：首次运行引导（注意事项 + 一键设置；帮助菜单可重开） */
@@ -2279,6 +2384,7 @@ ApplicationWindow {
                     text: I18n.tr("作废（不删除）")
                     height: 30
                     emphasized: true
+                    tooltip: I18n.tr("确认作废：不删除文件，可随时在作废页恢复显示")
                     onClicked: {
                         archiveConfirm.close()
                         var n = LibraryBridge.setArchivedBatch(gallery.selectedIds, true)
@@ -2376,6 +2482,7 @@ ApplicationWindow {
                     text: I18n.tr("浏览…")
                     height: 26
                     anchors.verticalCenter: parent.verticalCenter
+                    tooltip: I18n.tr("选择只读范围的目标文件夹")
                     onClicked: readOnlyFolderPicker.openDialog()
                 }
             }
@@ -2410,6 +2517,7 @@ ApplicationWindow {
                     objectName: "roUnlockBtn"
                     text: I18n.tr("解除只读")
                     height: 30
+                    tooltip: I18n.tr("解除只读锁定，恢复写入与修改")
                     onClicked: readOnlyDialog._apply(false)
                 }
                 PMButton {
@@ -2417,6 +2525,7 @@ ApplicationWindow {
                     text: I18n.tr("锁定只读")
                     height: 30
                     emphasized: true
+                    tooltip: I18n.tr("临时把库设为只读，防止误改（随时可解除）")
                     onClicked: readOnlyDialog._apply(true)
                 }
             }
@@ -2579,6 +2688,7 @@ ApplicationWindow {
     Menu {
         id: galleryMenu
         objectName: "galleryMenu"
+        popupType: Popup.Item   /* 0.6.21：native Menu 在麒麟上点击项无效 */
         title: I18n.tr("照片操作")
 
         function applyColorLabel(c) {
@@ -2632,6 +2742,7 @@ ApplicationWindow {
         Menu {
             id: ctxAddToAlbum
             objectName: "ctxAddToAlbum"
+            popupType: Popup.Item
             title: I18n.tr("添加到相册…")
             property var albumList: []
             onAboutToShow: ctxAddToAlbum.albumList = LibraryBridge.albums()
@@ -2681,12 +2792,88 @@ ApplicationWindow {
         Menu {
             id: ctxColorMenu
             objectName: "ctxColorMenu"
+            popupType: Popup.Item
             title: I18n.tr("色标")
-            MenuItem { text: I18n.tr("🔴 红"); onTriggered: galleryMenu.applyColorLabel("red") }
-            MenuItem { text: I18n.tr("🟡 黄"); onTriggered: galleryMenu.applyColorLabel("yellow") }
-            MenuItem { text: I18n.tr("🟢 绿"); onTriggered: galleryMenu.applyColorLabel("green") }
-            MenuItem { text: I18n.tr("🔵 蓝"); onTriggered: galleryMenu.applyColorLabel("blue") }
-            MenuItem { text: I18n.tr("🟣 紫"); onTriggered: galleryMenu.applyColorLabel("purple") }
+            /* 0.6.21：色圈 emoji（🔴🟡…）在麒麟精简系统缺彩色 emoji 字体
+               显示为豆腐块，改用色块绘制（零字体依赖） */
+            function colorHex(k) {
+                return { "red": "#E53935", "yellow": "#FDD835", "green": "#43A047",
+                         "blue": "#1E88E5", "purple": "#8E24AA" }[k] || Theme.divider
+            }
+            function colorName(k) {
+                return { "red": "红", "yellow": "黄", "green": "绿",
+                         "blue": "蓝", "purple": "紫" }[k] || ""
+            }
+            MenuItem {
+                id: colorRedItem
+                property string _color: "red"
+                contentItem: Row {
+                    spacing: 8
+                    Rectangle { width: 12; height: 12; radius: 6
+                                color: ctxColorMenu.colorHex(colorRedItem._color)
+                                anchors.verticalCenter: parent.verticalCenter }
+                    Text { text: I18n.tr(ctxColorMenu.colorName(colorRedItem._color))
+                           font.pixelSize: 13; color: Theme.text
+                           anchors.verticalCenter: parent.verticalCenter }
+                }
+                onTriggered: galleryMenu.applyColorLabel(colorRedItem._color)
+            }
+            MenuItem {
+                id: colorYellowItem
+                property string _color: "yellow"
+                contentItem: Row {
+                    spacing: 8
+                    Rectangle { width: 12; height: 12; radius: 6
+                                color: ctxColorMenu.colorHex(colorYellowItem._color)
+                                anchors.verticalCenter: parent.verticalCenter }
+                    Text { text: I18n.tr(ctxColorMenu.colorName(colorYellowItem._color))
+                           font.pixelSize: 13; color: Theme.text
+                           anchors.verticalCenter: parent.verticalCenter }
+                }
+                onTriggered: galleryMenu.applyColorLabel(colorYellowItem._color)
+            }
+            MenuItem {
+                id: colorGreenItem
+                property string _color: "green"
+                contentItem: Row {
+                    spacing: 8
+                    Rectangle { width: 12; height: 12; radius: 6
+                                color: ctxColorMenu.colorHex(colorGreenItem._color)
+                                anchors.verticalCenter: parent.verticalCenter }
+                    Text { text: I18n.tr(ctxColorMenu.colorName(colorGreenItem._color))
+                           font.pixelSize: 13; color: Theme.text
+                           anchors.verticalCenter: parent.verticalCenter }
+                }
+                onTriggered: galleryMenu.applyColorLabel(colorGreenItem._color)
+            }
+            MenuItem {
+                id: colorBlueItem
+                property string _color: "blue"
+                contentItem: Row {
+                    spacing: 8
+                    Rectangle { width: 12; height: 12; radius: 6
+                                color: ctxColorMenu.colorHex(colorBlueItem._color)
+                                anchors.verticalCenter: parent.verticalCenter }
+                    Text { text: I18n.tr(ctxColorMenu.colorName(colorBlueItem._color))
+                           font.pixelSize: 13; color: Theme.text
+                           anchors.verticalCenter: parent.verticalCenter }
+                }
+                onTriggered: galleryMenu.applyColorLabel(colorBlueItem._color)
+            }
+            MenuItem {
+                id: colorPurpleItem
+                property string _color: "purple"
+                contentItem: Row {
+                    spacing: 8
+                    Rectangle { width: 12; height: 12; radius: 6
+                                color: ctxColorMenu.colorHex(colorPurpleItem._color)
+                                anchors.verticalCenter: parent.verticalCenter }
+                    Text { text: I18n.tr(ctxColorMenu.colorName(colorPurpleItem._color))
+                           font.pixelSize: 13; color: Theme.text
+                           anchors.verticalCenter: parent.verticalCenter }
+                }
+                onTriggered: galleryMenu.applyColorLabel(colorPurpleItem._color)
+            }
             MenuSeparator {}
             MenuItem { text: I18n.tr("清除色标"); onTriggered: galleryMenu.applyColorLabel("") }
         }

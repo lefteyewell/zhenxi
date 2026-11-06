@@ -159,26 +159,33 @@ def _read_image(img_path: str) -> np.ndarray:
 
 
 def search_by_face(db: Database, image_path: str, models_dir: str | Path,
-                   min_sim: float = 0.30, top_k: int = 2000) -> list[tuple[int, float]]:
-    """上传人脸搜图：检测图中最大人脸 → SFace 特征 → 与库内人脸向量余弦比对。
+                   min_sim: float = 0.30, top_k: int = 0,
+                   face_index: int = -1) -> list[tuple[int, float, int]]:
+    """上传人脸搜图：检测图中人脸 → SFace 特征 → 与库内人脸向量余弦比对。
 
-    纯只读（不写库、不动原图）。同一照片取最高分，返回 [(photo_id, score)]
-    按相似度降序；min_sim 过滤噪声（SFace 同人常用阈值 0.363，此处放宽展示）。
-    """
+    纯只读（不写库、不动原图）。0.6.21 起返回**逐脸命中**列表
+    [(photo_id, sim, person_id)]（person_id 0=未指派；同人不同聚类各自
+    成条目，供按人物分组视图用），按相似度降序；min_sim 过滤噪声
+    （SFace 同人常用阈值 0.363，此处放宽展示）。
+    默认不再截断数量（top_k=0 = 全部返回，结果页分页展示，超量
+    不再对搜索者不可见；传正整数可保留旧行为）。
+    face_index：图中有多张脸时指定用哪一张（按检测置信度降序的序号，
+    与 detect_faces_for_search 返回的 index 同序）；-1/越界 = 置信度
+    最高的一张（0.5.37 以来的默认行为）。"""
     import cv2  # noqa: PLC0415
 
     svc = FaceService(models_dir)
     img = _read_image(image_path)
-    detections = svc.detect(img)
+    detections = sorted(svc.detect(img), key=lambda f: f["score"], reverse=True)
     if not detections:
         raise ValueError("图中未检测到人脸")
-    face = max(detections, key=lambda f: f["score"])
+    face = detections[face_index] if 0 <= face_index < len(detections) else detections[0]
     feat = svc.feature(img, face).astype(np.float32)
     fnorm = float(np.linalg.norm(feat)) or 1.0
 
-    best: dict[int, float] = {}
-    for pid, desc in db.conn.execute(
-        "SELECT photo_id, descriptor FROM faces WHERE hidden=0"
+    best: dict[tuple[int, int], float] = {}
+    for pid, desc, person in db.conn.execute(
+        "SELECT photo_id, descriptor, person_id FROM faces WHERE hidden=0"
     ):
         if not desc or len(desc) % 4 != 0:
             continue  # 畸形向量（历史残留/中断写入），跳过而非崩溃
@@ -189,9 +196,55 @@ def search_by_face(db: Database, image_path: str, models_dir: str | Path,
         if denom <= 0:
             continue
         sim = float(np.dot(feat, v) / denom)
-        if sim >= min_sim and sim > best.get(pid, -1.0):
-            best[pid] = sim
-    return sorted(best.items(), key=lambda kv: kv[1], reverse=True)[:top_k]
+        g = int(person) if person else 0
+        if sim >= min_sim and sim > best.get((pid, g), -1.0):
+            best[(pid, g)] = sim
+    out = sorted(
+        ((p, s, g) for (p, g), s in best.items()),
+        key=lambda t: t[1], reverse=True)
+    return out[:top_k] if top_k and top_k > 0 else out
+
+
+def detect_faces_for_search(image_path: str, models_dir: str | Path,
+                            thumb_px: int = 112) -> list[dict]:
+    """上传人脸搜图前置（0.6.21）：检测图中**全部**人脸并导出缩略图。
+
+    返回 [{"index": i, "score": s, "thumb": path}]，按检测置信度降序，
+    index 与 search_by_face(face_index=...) 同序；缩略图（外扩 25% 边距、
+    最长边 thumb_px）写入系统临时目录（pm_facepick_ 前缀），由操作系统
+    清理。图中没有人脸返回 []（调用方提示）。纯只读，不动原图。"""
+    import cv2  # noqa: PLC0415
+    import tempfile  # noqa: PLC0415
+
+    svc = FaceService(models_dir)
+    img = _read_image(image_path)
+    detections = sorted(svc.detect(img), key=lambda f: f["score"], reverse=True)
+    if not detections:
+        return []
+    tmpdir = Path(tempfile.mkdtemp(prefix="pm_facepick_"))
+    h, w = img.shape[:2]
+    out = []
+    for i, f in enumerate(detections):
+        bx, by, bw, bh = (float(v) for v in f["bbox"])
+        mx, my = bw * 0.25, bh * 0.25
+        x1, y1 = max(0, int(bx - mx)), max(0, int(by - my))
+        x2, y2 = min(w, int(bx + bw + mx)), min(h, int(by + bh + my))
+        crop = img[y1:y2, x1:x2]
+        if crop.size == 0:
+            continue
+        m = max(crop.shape[0], crop.shape[1])
+        if m > thumb_px:  # 只缩小不放大（放大只会把小脸抹糊，与 _blur_index 同理）
+            s = thumb_px / m
+            crop = cv2.resize(crop, None, fx=s, fy=s,
+                              interpolation=cv2.INTER_AREA)
+        ok, buf = cv2.imencode(".jpg", crop, [cv2.IMWRITE_JPEG_QUALITY, 90])
+        if not ok:
+            continue
+        tp = tmpdir / f"face_{i}.jpg"
+        buf.tofile(str(tp))  # imwrite 读不了中文路径，走内存缓冲再写盘
+        out.append({"index": i, "score": round(f["score"], 3),
+                    "thumb": str(tp)})
+    return out
 
 
 def _blur_index(img: np.ndarray) -> int:

@@ -132,12 +132,13 @@ Rectangle {
 
     property int currentId: -1
 
-    /* ACDsee 风格：分区可折叠 */
+    /* ACDsee 风格：分区可折叠（0.6.21 默认值按用户反馈调整：
+       拍摄参数折叠、文件信息展开） */
     property bool faceOpen: true
     property bool tagOpen: true
     property bool exifOpen: false
     property bool ocrOpen: false
-    property bool fileOpen: false
+    property bool fileOpen: true
     property bool faceExpanded: false
     signal tagPickerRequested()
     property string fullSource: ""
@@ -310,6 +311,9 @@ Rectangle {
                     text: archiveConfirm.pendingArchived ? I18n.tr("作废（不删除）") : I18n.tr("恢复显示")
                     height: 30
                     emphasized: true
+                    tooltip: archiveConfirm.pendingArchived
+                             ? I18n.tr("确认作废：不删除文件，可随时在作废页恢复显示")
+                             : I18n.tr("恢复显示该照片")
                     onClicked: {
                         archiveConfirm.close()
                         root._applyArchived(archiveConfirm.pendingArchived)
@@ -431,10 +435,19 @@ Rectangle {
                         font.pixelSize: 15
                         color: index < currentRating ? "#f5c842" : "#3a4150"
                         MouseArea {
+                            id: starArea
                             anchors.fill: parent
                             cursorShape: Qt.PointingHandCursor
                             onClicked: root.setRating(index + 1 === currentRating ? 0 : index + 1)
                         }
+                        /* 0.6.21：星级悬停提示（动态：评为 N 星 / 取消） */
+                        HoverHandler { id: starHover }
+                        ToolTip.visible: starHover.hovered
+                        ToolTip.delay: 550
+                        ToolTip.timeout: 4000
+                        ToolTip.text: index + 1 === currentRating
+                            ? I18n.tr("再点一次取消评级")
+                            : I18n.tr("评为 ") + (index + 1) + I18n.tr(" 星")
                     }
                 }
             }
@@ -452,7 +465,7 @@ Rectangle {
                 PMButton {
                     objectName: "flagPickBtn"
                     tooltip: I18n.tr("给当前照片打「精选」旗标（快捷键 P）")
-                    text: currentFlag === "pick" ? I18n.tr("精选 ✓") : I18n.tr("精选")
+                    text: currentFlag === "pick" ? I18n.tr("精选 √") : I18n.tr("精选")
                     implicitWidth: Math.max(72, implicitContentWidth + leftPadding + rightPadding)
                     height: 24
                     onClicked: root.setFlag(currentFlag === "pick" ? "" : "pick")
@@ -460,7 +473,7 @@ Rectangle {
                 PMButton {
                     objectName: "flagRejectBtn"
                     tooltip: I18n.tr("给当前照片打「排除」旗标（快捷键 X）")
-                    text: currentFlag === "reject" ? I18n.tr("排除 ✕") : I18n.tr("排除")
+                    text: currentFlag === "reject" ? I18n.tr("排除 ×") : I18n.tr("排除")
                     implicitWidth: Math.max(72, implicitContentWidth + leftPadding + rightPadding)
                     height: 24
                     onClicked: root.setFlag(currentFlag === "reject" ? "" : "reject")
@@ -728,7 +741,7 @@ Rectangle {
                             anchors.verticalCenter: parent.verticalCenter
                             x: 8
                             width: parent.width - 16
-                            text: I18n.tr("⚠ 文件数据不完整（可能传输中断/损坏）——预览为相机内嵌图，导出原图前请知悉")
+                            text: I18n.tr("! 文件数据不完整（可能传输中断/损坏）——预览为相机内嵌图，导出原图前请知悉")
                             font.family: Theme.fontFamily
                             font.pixelSize: 11
                             color: "#e65100"
@@ -854,8 +867,9 @@ Rectangle {
                             color: Theme.surface
                             border.width: 1
                             border.color: Theme.divider
-                            /* 未展开时只显示前 4 张（positioner 跳过 invisible 子项） */
-                            visible: root.faceExpanded || index < 4
+                            /* 未展开时只显示前 3 张=1 行（面板宽 ~300px 每行
+                               恰放 3 个 92px 头像；0.6.21 按用户反馈 2 行→1 行） */
+                            visible: root.faceExpanded || index < 3
                             Image {
                                 anchors.top: parent.top
                                 anchors.horizontalCenter: parent.horizontalCenter
@@ -919,7 +933,7 @@ Rectangle {
                                 color: dismissArea.containsMouse ? Theme.danger : Qt.rgba(0, 0, 0, 0.45)
                                 Text {
                                     anchors.centerIn: parent
-                                    text: "✕"
+                                    text: "×"
                                     color: "white"
                                     font.pixelSize: 11
                                 }

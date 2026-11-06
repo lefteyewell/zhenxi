@@ -148,8 +148,9 @@ Item {
                             text: I18n.tr("打开目录")
                             height: 26
                             tooltip: I18n.tr("在资源管理器中打开导出目录")
-                            onClicked: Qt.openUrlExternally(
-                                "file:///" + model.destDir.replace(/\\/g, "/"))
+                            /* 0.6.20：改走 LibraryBridge.openDir——原 Qt.openUrlExternally
+                               的 file:// 方式在银河麒麟 UKUI 桌面无关联时静默失败 */
+                            onClicked: LibraryBridge.openDir(model.destDir)
                         }
                     }
                 }

@@ -217,6 +217,7 @@ Dialog {
                 Layout.alignment: Qt.AlignVCenter
                 Menu {
                     id: faceCleanSortMenu
+                    popupType: Popup.Item   /* 0.6.21：native Menu 在麒麟上点击项无效 */
                     MenuItem { text: I18n.tr("按模糊指数（高→低）"); checkable: true; checked: root.sortMode === 0
                                onTriggered: { root.sortMode = 0; root.refresh() } }
                     MenuItem { text: I18n.tr("按照片名（A→Z）"); checkable: true; checked: root.sortMode === 1
@@ -334,7 +335,7 @@ Dialog {
                             Text {
                                 anchors.centerIn: parent
                                 visible: checked
-                                text: "✓"
+                                text: "√"
                                 font.pixelSize: 11
                                 font.weight: Font.Bold
                                 color: "white"

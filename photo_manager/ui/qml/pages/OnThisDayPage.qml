@@ -101,11 +101,13 @@ Item {
             PMButton {
                 text: I18n.tr("查看")
                 height: 30
+                tooltip: I18n.tr("按输入的月-日回看那天拍摄的照片")
                 onClicked: { root.monthDay = mdField.text.trim(); refresh() }
             }
             PMButton {
                 text: I18n.tr("今天")
                 height: 30
+                tooltip: I18n.tr("跳回今天拍摄的照片")
                 onClicked: { mdField.text = _today(); root.monthDay = ""; refresh() }
             }
         }
@@ -178,7 +180,7 @@ Item {
                                             visible: thumbImg.status !== Image.Ready
                                             Text {
                                                 anchors.centerIn: parent
-                                                text: modelData.faceCount > 0 ? "👤×" + modelData.faceCount : "?"
+                                                text: modelData.faceCount > 0 ? "◎×" + modelData.faceCount : "?"
                                                 font.pixelSize: 18
                                                 color: Theme.textDim
                                             }
