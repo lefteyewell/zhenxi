@@ -1296,7 +1296,10 @@ Item {
                     loadFaceSearch()
                 }
             }
-            Item { Layout.fillWidth: true; Layout.fillHeight: true }
+            /* 0.6.22：弹性填充只留 fillWidth——此前 fillHeight 会把整行
+               （Layout.preferredHeight 48）垂直拉伸到数百像素，照片网格
+               被挤到只剩几像素（Windows 实测标题行 518px/网格 10px） */
+            Item { Layout.fillWidth: true }
             Text {
                 text: root.selectedIds.length > 0 ? I18n.tr("已选 ") + root.selectedIds.length + I18n.tr(" 张") : ""
                 Layout.alignment: Qt.AlignVCenter

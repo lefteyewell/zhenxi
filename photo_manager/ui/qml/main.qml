@@ -620,12 +620,9 @@ ApplicationWindow {
                 ToolTip.delay: 500
                 ToolTip.text: I18n.tr("查看照片数量、存储占用等详细统计")
                 onTriggered: {
-                    var d = LibraryBridge.dbDetail()
-                    var s = I18n.tr("照片 ") + d.photos + I18n.tr("（索引 ") + d.indexed + I18n.tr(" · 失败 ")
-                            + d.failed + I18n.tr(" · 缺失 ") + d.missing + I18n.tr("）· 人脸 ") + d.faces
-                            + I18n.tr(" · 人物 ") + d.persons + I18n.tr(" · 事件 ") + d.events + I18n.tr(" · 标签 ")
-                            + d.tags + I18n.tr(" · 根目录 ") + d.roots.length
-                    toastLayer.show(s, "info")
+                    /* 0.6.22：改为弹窗展示（原先只往状态栏塞一行 toast，
+                       内容长时显示不全——用户反馈） */
+                    statsDetailDialog.openWith(LibraryBridge.dbDetail())
                 }
             }
             MenuSeparator {}
@@ -818,24 +815,18 @@ ApplicationWindow {
                         spacing: 6
 
                         /* 0.6.21：人脸搜图入口提到搜索栏左侧（原藏在搜索菜单
-                           深处，用户反馈找不到）——上传一张含人脸的图片按脸找照片 */
-                        Text {
+                           深处，用户反馈找不到）——上传一张含人脸的图片按脸找照片
+                           0.6.22：◎ 圆点改为显式文字按钮（用户反馈：功能不明显，
+                           只有圆点不知道能上传人脸照片搜图） */
+                        PMButton {
                             id: faceSearchBtn
                             objectName: "faceSearchBtn"
-                            text: "◎"
-                            font.pixelSize: 15
-                            color: faceSearchMa.containsMouse ? Theme.primary : Theme.textDim
+                            text: I18n.tr("人脸搜图")
+                            tooltip: I18n.tr("人脸搜图：上传一张含人脸的图片，找出库内含同一人物的照片")
+                            width: 92
+                            height: 30
                             Layout.alignment: Qt.AlignVCenter
-                            MouseArea {
-                                id: faceSearchMa
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                cursorShape: Qt.PointingHandCursor
-                                onClicked: faceSearchPicker.openDialog()
-                            }
-                            ToolTip.visible: faceSearchMa.containsMouse
-                            ToolTip.delay: 500
-                            ToolTip.text: I18n.tr("人脸搜图：上传一张含人脸的图片，找出库内含同一人物的照片")
+                            onClicked: faceSearchPicker.openDialog()
                         }
                         TextField {
                             id: searchField
@@ -2312,6 +2303,11 @@ ApplicationWindow {
     /* 0.6.21：随包文本查看器（帮助菜单 → 开源许可 / 第三方依赖清单） */
     TextDocDialog {
         id: textDocDialog
+    }
+
+    /* 0.6.22：库统计详情弹窗（原 toast 一行显示不全） */
+    StatsDetailDialog {
+        id: statsDetailDialog
     }
 
     /* 0.5.53：首次运行引导（注意事项 + 一键设置；帮助菜单可重开） */

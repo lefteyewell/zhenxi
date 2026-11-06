@@ -267,6 +267,15 @@ Item {
                                 onClicked: root.restoreRequested(model.folder)
                             }
                         }
+
+                        /* 0.6.22：行间分隔线（用户反馈：行与行边界不明显） */
+                        Rectangle {
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.bottom: parent.bottom
+                            height: 1
+                            color: Theme.divider
+                        }
                     }
 
                     Text {
@@ -377,6 +386,15 @@ Item {
                                     color: Theme.textDim; elide: Text.ElideMiddle; width: parent.width
                                 }
                             }
+                        }
+
+                        /* 0.6.22：行间分隔线（用户反馈：行与行边界不明显） */
+                        Rectangle {
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.bottom: parent.bottom
+                            height: 1
+                            color: Theme.divider
                         }
                     }
                 }
@@ -491,6 +509,15 @@ Item {
                                     color: Theme.textDim; elide: Text.ElideMiddle; width: parent.width
                                 }
                             }
+                        }
+
+                        /* 0.6.22：行间分隔线（用户反馈：行与行边界不明显） */
+                        Rectangle {
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.bottom: parent.bottom
+                            height: 1
+                            color: Theme.divider
                         }
                     }
                 }

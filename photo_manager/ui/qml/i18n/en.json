@@ -1552,6 +1552,18 @@
   "静音": "Mute",
   "恢复音量": "Unmute",
   "· 照片右下角标记：◎×N 表示人脸数，文 表示含识别文字——全部标志含义可随时点顶栏「图例」按钮查看。<br/><br/>": "· Corner marks on photos: ◎×N = face count, 文 = has recognized text — click the \"Legend\" button in the top bar anytime for the meaning of every mark.<br/><br/>",
-  "· <b>人脸搜图</b>：点顶部搜索框左侧的 ◎ 图标（或菜单「搜索 → 上传人脸搜图…」），选一张含人脸的图片，按人脸相似度找出库内含同一人物的照片；图中有多张脸时会弹出人脸选择器，点选其中一张进行搜索；结果页可切换「按相似度」平铺或「按人物」分组（组内仍按相似度、每组可折叠）。<br/><br/>": "· <b>Face search</b>: click the ◎ icon on the left of the top search bar (or menu \"Search → Upload face to search…\"), pick an image containing a face, and photos with the same person are found by face similarity. If the image contains several faces, a face picker appears — click one face to search with it. Results can be shown flat \"By similarity\" or grouped \"By person\" (similarity-sorted within groups, each group collapsible).<br/><br/>",
-  "· <b>← / →</b> 切换上一张 / 下一张；<b>Esc</b> 关闭；打开与翻页默认「适应窗口」，可自由缩放；<br/>": "· <b>← / →</b> previous / next photo; <b>Esc</b> close; opening and paging default to \"fit window\", free zoom available;<br/>"
+  "· <b>人脸搜图</b>：点顶部搜索框左侧的「人脸搜图」按钮（或菜单「搜索 → 上传人脸搜图…」），选一张含人脸的图片，按人脸相似度找出库内含同一人物的照片；图中有多张脸时会弹出人脸选择器，点选其中一张进行搜索；结果页可切换「按相似度」平铺或「按人物」分组（组内仍按相似度、每组可折叠）。<br/><br/>": "· <b>Face search</b>: click the \"Face search\" button on the left of the top search bar (or menu \"Search → Upload face to search…\"), pick an image containing a face, and photos with the same person are found by face similarity. If the image contains several faces, a face picker appears — click one face to search with it. Results can be shown flat \"By similarity\" or grouped \"By person\" (similarity-sorted within groups, each group collapsible).<br/><br/>",
+  "· <b>← / →</b> 切换上一张 / 下一张；<b>Esc</b> 关闭；打开与翻页默认「适应窗口」，可自由缩放；<br/>": "· <b>← / →</b> previous / next photo; <b>Esc</b> close; opening and paging default to \"fit window\", free zoom available;<br/>",
+  "库统计详情": "Library statistics",
+  "照片数量、分析状态与扫描根目录": "Photo counts, analysis status and scan roots",
+  "照片总数": "Total photos",
+  "已索引": "Indexed",
+  "解析失败": "Failed",
+  "人脸标注": "Face annotations",
+  "标签记录": "Tag records",
+  "扫描根目录（": "Scan roots (",
+  "还没有登记扫描根目录": "No scan roots registered yet",
+  "上次扫描：": "Last scanned: ",
+  "尚未扫描": "Not scanned yet",
+  "人脸搜图": "Face search"
 }

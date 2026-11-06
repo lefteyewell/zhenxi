@@ -30,3 +30,4 @@ DuplicatePersonsDialog 1.0 DuplicatePersonsDialog.qml
 BadgeLegendDialog 1.0 BadgeLegendDialog.qml
 FacePickerDialog 1.0 FacePickerDialog.qml
 TextDocDialog 1.0 TextDocDialog.qml
+StatsDetailDialog 1.0 StatsDetailDialog.qml

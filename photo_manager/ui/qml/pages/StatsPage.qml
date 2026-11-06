@@ -129,22 +129,35 @@ Item {
                             clip: true
                             ScrollBar.vertical: PMScrollBar { policy: ScrollBar.AlwaysOn }
                             model: yearModel
-                            delegate: RowLayout {
+                            /* 0.6.22：表格行加底部分隔线（用户反馈：行与行边界
+                               不明显）。RowLayout 不能画线，外包一层 Item。 */
+                            delegate: Item {
                                 width: parent ? parent.width : 0
                                 height: 26
-                                Text {
-                                    Layout.fillWidth: true
-                                    text: model.key
-                                    font.family: Theme.fontFamily
-                                    font.pixelSize: 12
-                                    color: Theme.text
-                                    elide: Text.ElideMiddle
+                                RowLayout {
+                                    anchors.fill: parent
+                                    anchors.leftMargin: Theme.spacingSmall
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: model.key
+                                        font.family: Theme.fontFamily
+                                        font.pixelSize: 12
+                                        color: Theme.text
+                                        elide: Text.ElideMiddle
+                                    }
+                                    Text {
+                                        text: model.count
+                                        font.family: Theme.fontFamily
+                                        font.pixelSize: 12
+                                        color: Theme.textDim
+                                    }
                                 }
-                                Text {
-                                    text: model.count
-                                    font.family: Theme.fontFamily
-                                    font.pixelSize: 12
-                                    color: Theme.textDim
+                                Rectangle {
+                                    anchors.left: parent.left
+                                    anchors.right: parent.right
+                                    anchors.bottom: parent.bottom
+                                    height: 1
+                                    color: Theme.divider
                                 }
                             }
                         }
@@ -174,22 +187,35 @@ Item {
                             clip: true
                             ScrollBar.vertical: PMScrollBar { policy: ScrollBar.AlwaysOn }
                             model: monthModel
-                            delegate: RowLayout {
+                            /* 0.6.22：表格行加底部分隔线（用户反馈：行与行边界
+                               不明显）。RowLayout 不能画线，外包一层 Item。 */
+                            delegate: Item {
                                 width: parent ? parent.width : 0
                                 height: 26
-                                Text {
-                                    Layout.fillWidth: true
-                                    text: model.key
-                                    font.family: Theme.fontFamily
-                                    font.pixelSize: 12
-                                    color: Theme.text
-                                    elide: Text.ElideMiddle
+                                RowLayout {
+                                    anchors.fill: parent
+                                    anchors.leftMargin: Theme.spacingSmall
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: model.key
+                                        font.family: Theme.fontFamily
+                                        font.pixelSize: 12
+                                        color: Theme.text
+                                        elide: Text.ElideMiddle
+                                    }
+                                    Text {
+                                        text: model.count
+                                        font.family: Theme.fontFamily
+                                        font.pixelSize: 12
+                                        color: Theme.textDim
+                                    }
                                 }
-                                Text {
-                                    text: model.count
-                                    font.family: Theme.fontFamily
-                                    font.pixelSize: 12
-                                    color: Theme.textDim
+                                Rectangle {
+                                    anchors.left: parent.left
+                                    anchors.right: parent.right
+                                    anchors.bottom: parent.bottom
+                                    height: 1
+                                    color: Theme.divider
                                 }
                             }
                         }
@@ -219,22 +245,35 @@ Item {
                             clip: true
                             ScrollBar.vertical: PMScrollBar { policy: ScrollBar.AlwaysOn }
                             model: deviceModel
-                            delegate: RowLayout {
+                            /* 0.6.22：表格行加底部分隔线（用户反馈：行与行边界
+                               不明显）。RowLayout 不能画线，外包一层 Item。 */
+                            delegate: Item {
                                 width: parent ? parent.width : 0
                                 height: 26
-                                Text {
-                                    Layout.fillWidth: true
-                                    text: model.key
-                                    font.family: Theme.fontFamily
-                                    font.pixelSize: 12
-                                    color: Theme.text
-                                    elide: Text.ElideMiddle
+                                RowLayout {
+                                    anchors.fill: parent
+                                    anchors.leftMargin: Theme.spacingSmall
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: model.key
+                                        font.family: Theme.fontFamily
+                                        font.pixelSize: 12
+                                        color: Theme.text
+                                        elide: Text.ElideMiddle
+                                    }
+                                    Text {
+                                        text: model.count
+                                        font.family: Theme.fontFamily
+                                        font.pixelSize: 12
+                                        color: Theme.textDim
+                                    }
                                 }
-                                Text {
-                                    text: model.count
-                                    font.family: Theme.fontFamily
-                                    font.pixelSize: 12
-                                    color: Theme.textDim
+                                Rectangle {
+                                    anchors.left: parent.left
+                                    anchors.right: parent.right
+                                    anchors.bottom: parent.bottom
+                                    height: 1
+                                    color: Theme.divider
                                 }
                             }
                         }
@@ -264,22 +303,35 @@ Item {
                             clip: true
                             ScrollBar.vertical: PMScrollBar { policy: ScrollBar.AlwaysOn }
                             model: locationModel
-                            delegate: RowLayout {
+                            /* 0.6.22：表格行加底部分隔线（用户反馈：行与行边界
+                               不明显）。RowLayout 不能画线，外包一层 Item。 */
+                            delegate: Item {
                                 width: parent ? parent.width : 0
                                 height: 26
-                                Text {
-                                    Layout.fillWidth: true
-                                    text: model.key
-                                    font.family: Theme.fontFamily
-                                    font.pixelSize: 12
-                                    color: Theme.text
-                                    elide: Text.ElideMiddle
+                                RowLayout {
+                                    anchors.fill: parent
+                                    anchors.leftMargin: Theme.spacingSmall
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: model.key
+                                        font.family: Theme.fontFamily
+                                        font.pixelSize: 12
+                                        color: Theme.text
+                                        elide: Text.ElideMiddle
+                                    }
+                                    Text {
+                                        text: model.count
+                                        font.family: Theme.fontFamily
+                                        font.pixelSize: 12
+                                        color: Theme.textDim
+                                    }
                                 }
-                                Text {
-                                    text: model.count
-                                    font.family: Theme.fontFamily
-                                    font.pixelSize: 12
-                                    color: Theme.textDim
+                                Rectangle {
+                                    anchors.left: parent.left
+                                    anchors.right: parent.right
+                                    anchors.bottom: parent.bottom
+                                    height: 1
+                                    color: Theme.divider
                                 }
                             }
                         }
@@ -308,22 +360,34 @@ Item {
                             clip: true
                             ScrollBar.vertical: PMScrollBar { policy: ScrollBar.AlwaysOn }
                             model: ratingModel
-                            delegate: RowLayout {
+                            /* 0.6.22：表格行加底部分隔线（同上） */
+                            delegate: Item {
                                 width: parent ? parent.width : 0
                                 height: 26
-                                Text {
-                                    Layout.fillWidth: true
-                                    text: "★".repeat(parseInt(model.key)) + " " + model.key + I18n.tr(" 星")
-                                    font.family: Theme.fontFamily
-                                    font.pixelSize: 12
-                                    color: "#f5c842"
-                                    elide: Text.ElideMiddle
+                                RowLayout {
+                                    anchors.fill: parent
+                                    anchors.leftMargin: Theme.spacingSmall
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: "★".repeat(parseInt(model.key)) + " " + model.key + I18n.tr(" 星")
+                                        font.family: Theme.fontFamily
+                                        font.pixelSize: 12
+                                        color: "#f5c842"
+                                        elide: Text.ElideMiddle
+                                    }
+                                    Text {
+                                        text: model.count
+                                        font.family: Theme.fontFamily
+                                        font.pixelSize: 12
+                                        color: Theme.textDim
+                                    }
                                 }
-                                Text {
-                                    text: model.count
-                                    font.family: Theme.fontFamily
-                                    font.pixelSize: 12
-                                    color: Theme.textDim
+                                Rectangle {
+                                    anchors.left: parent.left
+                                    anchors.right: parent.right
+                                    anchors.bottom: parent.bottom
+                                    height: 1
+                                    color: Theme.divider
                                 }
                             }
                         }
