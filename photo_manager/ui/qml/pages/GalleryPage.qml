@@ -56,6 +56,8 @@ Item {
     signal photoContextRequested(var ids, int index)
     signal contextMenuRequested(int gx, int gy)
     signal batchTagRequested()
+    /* 0.6.23：批量作废（经主窗口既有作废确认弹窗） */
+    signal batchArchiveRequested()
     signal batchExportRequested()
     signal batchMoveOutRequested()
     signal batchCopyRequested(string paths)
@@ -271,7 +273,8 @@ Item {
                     ? _loaded + " / " + totalCount + I18n.tr(" 张")
                     : _loaded + I18n.tr(" 张")
         var more = _mode === "all" && totalCount > 0 ? _loaded < totalCount : true
-        if (more) label += I18n.tr("（滚动加载更多）")
+        /* 0.6.23：张数与提示分两行（用户反馈节约横向空间） */
+        if (more) label += "\n" + I18n.tr("滚动加载更多")
         countText.text = label
     }
 
@@ -495,6 +498,7 @@ Item {
         else if (kind === "export") batchExportRequested()
         else if (kind === "moveout") batchMoveOutRequested()
         else if (kind === "personmove") moveOutOfPersonRequested()
+        else if (kind === "archive") batchArchiveRequested()
         else if (kind === "copy") batchCopyRequested(selectedPathsText())
     }
 
@@ -586,7 +590,7 @@ Item {
                 off += 500
             }
         }
-        countText.text = _loaded + I18n.tr(" 张 · 按人物分组（组内按相似度）")
+        countText.text = _loaded + I18n.tr(" 张\n按人物分组（组内按相似度）")
     }
 
     /* 重新加载当前视图（归档/取消归档后刷新网格，使隐藏/恢复立即生效）
@@ -1319,7 +1323,7 @@ Item {
                 id: countText
                 Layout.alignment: Qt.AlignVCenter
                 font.family: Theme.fontFamily
-                font.pixelSize: 12
+                font.pixelSize: 10
                 color: Theme.textDim
             }
             /* 0.5.67：人物页专属——批量分拆人脸（归为新人物/并入其他人物） */
@@ -1358,7 +1362,7 @@ Item {
             PMButton {
                 objectName: "filterBtn"
                 text: I18n.tr("筛选 ▾")
-                width: 64
+                width: 56
                 height: 30
                 tooltip: I18n.tr("按旗标/评级筛选照片")
                 onClicked: filterMenu.popup(this, 0, height + 2)
@@ -1399,7 +1403,7 @@ Item {
                 text: (root.groupMode ? I18n.tr("分组视图")
                        : root.stackMode ? I18n.tr("堆叠视图")
                        : I18n.tr("默认视图")) + " ▾"
-                width: 104
+                width: 88
                 height: 30
                 tooltip: I18n.tr("切换照片排列方式：默认平铺 / 连拍堆叠 / 按文件夹分组")
                 onClicked: viewMenu.popup(this, 0, height + 2)
@@ -1443,7 +1447,7 @@ Item {
                 objectName: "sortToggleBtn"
                 tooltip: I18n.tr("选择缩略图排列顺序：时间、文件名、文件夹、相机、评级、大小")
                 text: I18n.tr("排序 ▾")
-                width: 68
+                width: 60
                 height: 30
                 onClicked: sortMenu.popup(this, 0, height + 2)
                 Menu {
@@ -1469,8 +1473,8 @@ Item {
             PMButton {
                 objectName: "opsBtn"
                 property string lastOp: ""
-                text: lastOp !== "" ? lastOp : I18n.tr("操作")
-                width: 84
+                text: (lastOp !== "" ? lastOp : I18n.tr("操作")) + " ▾"
+                width: 96
                 height: 30
                 tooltip: I18n.tr("对所选照片批量操作：打标签 / 导出 / 移出 / 复制路径")
                 onClicked: opsMenu.popup(this, 0, height + 2)
@@ -1512,6 +1516,15 @@ Item {
                             root.batchOp("personmove")
                         }
                     }
+                    /* 0.6.23：批量作废入口（0.5.39 起仅右键菜单有，用户反馈不知晓） */
+                    MenuItem {
+                        objectName: "batchArchiveBtn"
+                        text: I18n.tr("作废（不删除）")
+                        onTriggered: {
+                            opsBtn.lastOp = I18n.tr("作废")
+                            root.batchOp("archive")
+                        }
+                    }
                     MenuItem {
                         objectName: "batchCopyBtn"
                         text: I18n.tr("复制路径")
@@ -1527,7 +1540,7 @@ Item {
                 objectName: "batchSelectAllBtn"
                 tooltip: I18n.tr("选中当前已加载的全部照片（继续滚动会加载更多）")
                 text: I18n.tr("全选")
-                width: 56
+                width: 48
                 height: 30
                 onClicked: root.selectAllLoaded()
             }
@@ -1535,7 +1548,7 @@ Item {
                 objectName: "batchInvertBtn"
                 tooltip: I18n.tr("反选：取消已选中的，选中当前列表里其余未选中的（0.5.52）")
                 text: I18n.tr("反选")
-                width: 56
+                width: 48
                 height: 30
                 onClicked: root.invertSelection()
             }
@@ -1543,7 +1556,7 @@ Item {
                 objectName: "batchClearBtn"
                 tooltip: I18n.tr("取消当前所有选中")
                 text: I18n.tr("取消选择")
-                width: 76
+                width: 64
                 height: 30
                 onClicked: root.clearSelection()
             }

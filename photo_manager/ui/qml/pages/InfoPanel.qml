@@ -244,10 +244,12 @@ Rectangle {
                            f === "reject" ? I18n.tr("已标记排除") : I18n.tr("已清除旗标"), "success")
     }
 
-    /* 0.5.39：作废需确认——pendingArchived 暂存意图，弹窗说明作用后执行 */
+    /* 0.5.39：作废需确认——pendingArchived 暂存意图，弹窗说明作用后执行。
+       0.6.23：修复确认弹窗从不出现——此前写未限定名 pendingArchived 触发
+       "Invalid write to global property" 致函数中断，open() 永远执行不到 */
     function setArchived(a) {
         if (currentId < 0) return
-        pendingArchived = a
+        archiveConfirm.pendingArchived = a
         archiveConfirm.open()
     }
 

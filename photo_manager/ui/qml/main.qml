@@ -799,9 +799,10 @@ ApplicationWindow {
 
                 /* 搜索框 + 联想 */
                 Rectangle {
-                    Layout.preferredWidth: 300
-                    Layout.maximumWidth: 340
-                    Layout.minimumWidth: 180
+                    /* 0.6.23：300→240/280/160（用户反馈顶栏控件太宽） */
+                    Layout.preferredWidth: 240
+                    Layout.maximumWidth: 280
+                    Layout.minimumWidth: 160
                     height: 34
                     radius: 17
                     color: Theme.bg
@@ -818,7 +819,7 @@ ApplicationWindow {
                             id: searchField
                             objectName: "searchField"
                             Layout.fillWidth: true
-                            placeholderText: I18n.tr("搜索照片（文件名 / 相机 / 文字）")
+                            placeholderText: I18n.tr("搜索照片（文件名/相机/文字/语义等）")
                             color: Theme.text
                             placeholderTextColor: Theme.textDim
                             background: Rectangle { color: "transparent" }
@@ -944,14 +945,14 @@ ApplicationWindow {
                     model: ThemeController ? ThemeController.schemeNames : []
                     currentIndex: ThemeController ? ThemeController.schemeIndex : 0
                     onActivated: ThemeController.setScheme(currentIndex)
-                    width: 80   /* 0.6.23：96→80（用户反馈太宽；最长项"影棚深灰"加箭头仍可显示） */
+                    width: 72   /* 0.6.23：96→72（用户反馈再缩；"影棚深灰"+箭头仍完整显示） */
                     height: 32
                 }
 
                 PMButton {
                     text: Theme.dark ? I18n.tr("浅色") : I18n.tr("深色")
                     tooltip: I18n.tr("切换浅色/深色主题")
-                    width: 64   /* 0.6.23：限宽（默认 implicit 最小 96 太宽） */
+                    width: 56   /* 0.6.23：64→56（用户反馈再缩） */
                     onClicked: ThemeController.toggleDark()
                 }
 
@@ -1322,6 +1323,11 @@ ApplicationWindow {
                         batchTagDialog.open()
                     }
                     onBatchExportRequested: exportDialog.open()
+                    /* 0.6.23：操作下拉「作废（不删除）」→ 既有作废确认弹窗 */
+                    onBatchArchiveRequested: {
+                        archiveConfirm.pendingCount = gallery.selectedIds.length
+                        archiveConfirm.open()
+                    }
                     onBatchMoveOutRequested: moveOutPicker.openDialog()
                     onBatchCopyRequested: (paths) => {
                         LibraryBridge.setClipboard(paths)

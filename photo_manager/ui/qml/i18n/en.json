@@ -1565,5 +1565,8 @@
   "还没有登记扫描根目录": "No scan roots registered yet",
   "上次扫描：": "Last scanned: ",
   "尚未扫描": "Not scanned yet",
-  "人脸搜图": "Face search"
+  "人脸搜图": "Face search",
+"搜索照片（文件名/相机/文字/语义等）": "Search photos (filename/camera/text/semantic…)",
+"滚动加载更多": "scroll for more",
+"按人物分组（组内按相似度）": "grouped by person (similarity within group)"
 }
