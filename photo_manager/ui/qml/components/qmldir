@@ -32,3 +32,4 @@ FacePickerDialog 1.0 FacePickerDialog.qml
 TextDocDialog 1.0 TextDocDialog.qml
 StatsDetailDialog 1.0 StatsDetailDialog.qml
 CheckMark 1.0 CheckMark.qml
+DatePickerPopup 1.0 DatePickerPopup.qml

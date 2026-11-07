@@ -22,6 +22,19 @@ Item {
         _titleArg = arg || ""
         _applyTitle()
     }
+    /* 0.6.23：搜索标题里的语法关键字随界面语言显示
+       （用户反馈 flag:pick 这类英文直接露出；仅影响标题展示，不影响实际搜索） */
+    function _prettyQuery(q) {
+        var s = String(q)
+        var map = [
+            ["flag:pick", I18n.tr("精选")], ["flag:reject", I18n.tr("排除")],
+            ["flag:none", I18n.tr("未设旗标")], ["flag:archive", I18n.tr("已作废")]
+        ]
+        for (var i = 0; i < map.length; ++i)
+            s = s.replace(new RegExp(map[i][0].replace(":", "\\:"), "g"), map[i][1])
+        return s
+    }
+
     function _applyTitle() {
         var k = _titleKind, a = _titleArg
         if (k === "all") pageTitle = I18n.tr("全部照片")
@@ -31,7 +44,7 @@ Item {
         else if (k === "place") pageTitle = I18n.tr("地点：") + a
         else if (k === "device") pageTitle = I18n.tr("设备：") + a
         else if (k === "tag") pageTitle = I18n.tr("标签：") + a
-        else if (k === "search") pageTitle = I18n.tr("搜索：") + a
+        else if (k === "search") pageTitle = I18n.tr("搜索：") + _prettyQuery(a)
         else if (k === "taken") pageTitle = I18n.tr("拍摄：") + a
         else if (k === "rating") pageTitle = (parseFloat(a) > 0)
             ? (I18n.tr("评级 ≥ ") + a + " ★") : I18n.tr("已评级")
@@ -1290,13 +1303,20 @@ Item {
            Item 不生效（右侧大片空白）。改 RowLayout 修复布局与错位。
            0.6.23：筛选行 + 批量操作条并入本行（用户反馈按钮太多占三行），
            objectName 保留 batchBar 供验收脚本（现恒可见，h=48）。 */
-        RowLayout {
+        /* 0.6.23：窄窗口按钮超宽时水平滚动（用户反馈不要被遮挡） */
+        ScrollView {
             objectName: "batchBar"
             Layout.fillWidth: true
             Layout.preferredHeight: 48
             Layout.leftMargin: Theme.spacingMedium
             Layout.rightMargin: Theme.spacingMedium
-            spacing: Theme.spacingSmall
+            ScrollBar.horizontal: PMScrollBar { policy: ScrollBar.AsNeeded }
+            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AlwaysOff }
+
+            RowLayout {
+                height: 48
+                width: Math.max(batchBar.availableWidth, implicitWidth)
+                spacing: Theme.spacingSmall
 
             PMButton {
                 objectName: "galleryBackBtn"
@@ -1567,6 +1587,7 @@ Item {
                 font.family: Theme.fontFamily
                 font.pixelSize: 12
                 color: Theme.primary
+            }
             }
         }
 

@@ -41,35 +41,9 @@ Popup {
 
     signal searchRequested(string query)
 
-    /* 0.6.23：日期选择行（年/月/日下拉，替代手输——用户反馈要格式约束）。
-       未选全年月日时 dateStr 为空串 = 不限。 */
-    component DateComboRow: Row {
-        spacing: 4
-        property string dateStr: yBox.currentIndex > 0 && mBox.currentIndex > 0 && dBox.currentIndex > 0
-            ? (1969 + yBox.currentIndex)
-              + "-" + (mBox.currentIndex < 10 ? "0" + mBox.currentIndex : mBox.currentIndex)
-              + "-" + (dBox.currentIndex < 10 ? "0" + dBox.currentIndex : dBox.currentIndex)
-            : ""
-        function reset() { yBox.currentIndex = 0; mBox.currentIndex = 0; dBox.currentIndex = 0 }
-        ComboBox {
-            id: yBox
-            width: 72; height: 28
-            font.pixelSize: 12
-            model: { var a = [I18n.tr("年")]; for (var y = 1970; y <= 2035; ++y) a.push(y); return a }
-        }
-        ComboBox {
-            id: mBox
-            width: 56; height: 28
-            font.pixelSize: 12
-            model: { var a = [I18n.tr("月")]; for (var m = 1; m <= 12; ++m) a.push(m); return a }
-        }
-        ComboBox {
-            id: dBox
-            width: 56; height: 28
-            font.pixelSize: 12
-            model: { var a = [I18n.tr("日")]; for (var d = 1; d <= 31; ++d) a.push(d); return a }
-        }
-    }
+    /* 0.6.23：起止日期值（月历弹窗选择，格式恒为 yyyy-MM-DD；空串=不限） */
+    QtObject { id: dateFromPick; property string dateStr: "" }
+    QtObject { id: dateToPick; property string dateStr: "" }
 
         function buildQuery() {
         var parts = []
@@ -205,8 +179,25 @@ Popup {
                 color: Theme.textDim
                 width: 90
             }
-            /* 0.6.23：手输日期改为年/月/日下拉选择（格式不会错） */
-            DateComboRow { id: dateFromPick; objectName: "dateFromPick" }
+            /* 0.6.23：月历弹窗选择日期（年份无限翻页），按钮显示当前值 */
+            Row {
+                spacing: 4
+                PMButton {
+                    id: dateFromBtn
+                    text: dateFromPick.dateStr !== "" ? dateFromPick.dateStr : I18n.tr("不限日期")
+                    width: 150
+                    height: 28
+                    tooltip: I18n.tr("点击选择起始日期")
+                    onClicked: fromPicker.openFor(dateFromPick.dateStr)
+                }
+                PMButton {
+                    text: "×"
+                    width: 28
+                    height: 28
+                    tooltip: I18n.tr("清除起始日期")
+                    onClicked: dateFromPick.dateStr = ""
+                }
+            }
 
             Text {
                 text: I18n.tr("拍摄日期止")
@@ -215,7 +206,24 @@ Popup {
                 color: Theme.textDim
                 width: 90
             }
-            DateComboRow { id: dateToPick; objectName: "dateToPick" }
+            Row {
+                spacing: 4
+                PMButton {
+                    id: dateToBtn
+                    text: dateToPick.dateStr !== "" ? dateToPick.dateStr : I18n.tr("不限日期")
+                    width: 150
+                    height: 28
+                    tooltip: I18n.tr("点击选择截止日期")
+                    onClicked: toPicker.openFor(dateToPick.dateStr)
+                }
+                PMButton {
+                    text: "×"
+                    width: 28
+                    height: 28
+                    tooltip: I18n.tr("清除截止日期")
+                    onClicked: dateToPick.dateStr = ""
+                }
+            }
 
             Text {
                 text: I18n.tr("相机")
@@ -435,8 +443,8 @@ Popup {
                 onClicked: {
                     keywordField.text = ""
                     clipField.text = ""
-                    dateFromPick.reset()
-                    dateToPick.reset()
+                    dateFromPick.dateStr = ""
+                    dateToPick.dateStr = ""
                     cameraField.text = ""
                     tagField.text = ""
                     personField.text = ""
@@ -457,6 +465,23 @@ Popup {
             font.pixelSize: 10
             color: Theme.textDim
             wrapMode: Text.Wrap
+        }
+    }
+
+
+    DatePickerPopup {
+        id: fromPicker
+        objectName: "fromPicker"
+        onPicked: (d) => {
+            dateFromPick.dateStr = isNaN(d.getTime()) ? "" : Qt.formatDate(d, "yyyy-MM-dd")
+        }
+    }
+
+    DatePickerPopup {
+        id: toPicker
+        objectName: "toPicker"
+        onPicked: (d) => {
+            dateToPick.dateStr = isNaN(d.getTime()) ? "" : Qt.formatDate(d, "yyyy-MM-dd")
         }
     }
 

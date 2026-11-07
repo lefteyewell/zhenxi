@@ -1568,5 +1568,22 @@
   "人脸搜图": "Face search",
 "搜索照片（文件名/相机/文字/语义等）": "Search photos (filename/camera/text/semantic…)",
 "滚动加载更多": "scroll for more",
-"按人物分组（组内按相似度）": "grouped by person (similarity within group)"
+"按人物分组（组内按相似度）": "grouped by person (similarity within group)",
+"未设旗标": "No flag",
+"不限日期": "Any date",
+"点击选择起始日期": "Pick the start date",
+"点击选择截止日期": "Pick the end date",
+"清除起始日期": "Clear the start date",
+"清除截止日期": "Clear the end date",
+"上一年": "Previous year",
+"上个月": "Previous month",
+"下个月": "Next month",
+"下一年": "Next year",
+"一": "Mo",
+"二": "Tu",
+"三": "We",
+"四": "Th",
+"五": "Fr",
+"六": "Sa",
+"日": "Su"
 }

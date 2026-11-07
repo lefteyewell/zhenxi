@@ -39,6 +39,8 @@ Item {
     property bool _busy: false
     property var _expanded: ({})      // path -> true
     property var _sel: ({})           // 勾选待添加的文件夹 path -> true
+    /* 0.6.23：当前查看的文件夹（点击行后记忆，跨导航/刷新持久高亮） */
+    property string currentFolder: ""
     property int _selCount: 0
 
     function toggleSelect(path) {
@@ -157,6 +159,7 @@ Item {
         if (pi < 0) return
         var row = treeModel.get(pi)
         if (!row.hasChildren) {
+            root.currentFolder = normalize(row.path)
             root.folderChosen(row.path, row.photoCount)
             return
         }
@@ -178,6 +181,7 @@ Item {
             loadChildren(path)
         }
         // 点击文件夹即加载其中照片（与系统浏览器行为一致）
+        root.currentFolder = normalize(row.path)
         root.folderChosen(row.path, row.photoCount)
     }
 
@@ -312,6 +316,15 @@ Item {
                 color: root._expanded[normalize(model.path)] === true || row.isSel
                        ? Theme.hover
                        : (rowArea.hovered ? Qt.rgba(Theme.hover.r, Theme.hover.g, Theme.hover.b, 0.5) : "transparent")
+                /* 0.6.23：当前查看的文件夹常亮标记（跨导航/刷新持久） */
+                Rectangle {
+                    visible: root.currentFolder !== "" && root.currentFolder === root.normalize(model.path)
+                    anchors.left: parent.left
+                    anchors.top: parent.top
+                    anchors.bottom: parent.bottom
+                    width: 3
+                    color: Theme.primary
+                }
 
                 RowLayout {
                     anchors.fill: parent

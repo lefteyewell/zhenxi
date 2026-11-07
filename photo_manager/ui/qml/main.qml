@@ -945,14 +945,15 @@ ApplicationWindow {
                     model: ThemeController ? ThemeController.schemeNames : []
                     currentIndex: ThemeController ? ThemeController.schemeIndex : 0
                     onActivated: ThemeController.setScheme(currentIndex)
-                    width: 72   /* 0.6.23：96→72（用户反馈再缩；"影棚深灰"+箭头仍完整显示） */
+                    width: 66   /* 0.6.23：72→66+字号11（用户反馈仍太宽） */
                     height: 32
+                    font.pixelSize: 11
                 }
 
                 PMButton {
                     text: Theme.dark ? I18n.tr("浅色") : I18n.tr("深色")
                     tooltip: I18n.tr("切换浅色/深色主题")
-                    width: 56   /* 0.6.23：64→56（用户反馈再缩） */
+                    width: 48   /* 0.6.23：56→48（用户反馈再缩） */
                     onClicked: ThemeController.toggleDark()
                 }
 
