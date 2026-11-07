@@ -1303,19 +1303,27 @@ Item {
            Item 不生效（右侧大片空白）。改 RowLayout 修复布局与错位。
            0.6.23：筛选行 + 批量操作条并入本行（用户反馈按钮太多占三行），
            objectName 保留 batchBar 供验收脚本（现恒可见，h=48）。 */
-        /* 0.6.23：窄窗口按钮超宽时水平滚动（用户反馈不要被遮挡） */
-        ScrollView {
+        /* 0.6.23：窄窗口按钮超宽时水平滚动（用户反馈不要被遮挡）。
+           0.6.23b：ScrollView 换 Flickable+显式 contentWidth（滚动条确定出现）；
+           按钮宽度必须 Layout.preferredWidth——RowLayout 忽略子项显式 width
+           而按 implicit 96px 渲染（此前按钮超宽/滚动条不出的根因） */
+        Flickable {
+            id: batchBar
             objectName: "batchBar"
             Layout.fillWidth: true
             Layout.preferredHeight: 48
             Layout.leftMargin: Theme.spacingMedium
             Layout.rightMargin: Theme.spacingMedium
+            clip: true
+            contentWidth: opsRow.width
+            contentHeight: 48
+            boundsBehavior: Flickable.StopAtBounds
             ScrollBar.horizontal: PMScrollBar { policy: ScrollBar.AsNeeded }
-            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AlwaysOff }
 
             RowLayout {
+                id: opsRow
                 height: 48
-                width: Math.max(batchBar.availableWidth, implicitWidth)
+                width: Math.max(batchBar.availableWidth, opsRow.implicitWidth)
                 spacing: Theme.spacingSmall
 
             PMButton {
@@ -1382,7 +1390,7 @@ Item {
             PMButton {
                 objectName: "filterBtn"
                 text: I18n.tr("筛选 ▾")
-                width: 56
+                Layout.preferredWidth: 56
                 height: 30
                 tooltip: I18n.tr("按旗标/评级筛选照片")
                 onClicked: filterMenu.popup(this, 0, height + 2)
@@ -1423,7 +1431,7 @@ Item {
                 text: (root.groupMode ? I18n.tr("分组视图")
                        : root.stackMode ? I18n.tr("堆叠视图")
                        : I18n.tr("默认视图")) + " ▾"
-                width: 88
+                Layout.preferredWidth: 88
                 height: 30
                 tooltip: I18n.tr("切换照片排列方式：默认平铺 / 连拍堆叠 / 按文件夹分组")
                 onClicked: viewMenu.popup(this, 0, height + 2)
@@ -1467,7 +1475,7 @@ Item {
                 objectName: "sortToggleBtn"
                 tooltip: I18n.tr("选择缩略图排列顺序：时间、文件名、文件夹、相机、评级、大小")
                 text: I18n.tr("排序 ▾")
-                width: 60
+                Layout.preferredWidth: 60
                 height: 30
                 onClicked: sortMenu.popup(this, 0, height + 2)
                 Menu {
@@ -1494,7 +1502,7 @@ Item {
                 objectName: "opsBtn"
                 property string lastOp: ""
                 text: (lastOp !== "" ? lastOp : I18n.tr("操作")) + " ▾"
-                width: 96
+                Layout.preferredWidth: 96
                 height: 30
                 tooltip: I18n.tr("对所选照片批量操作：打标签 / 导出 / 移出 / 复制路径")
                 onClicked: opsMenu.popup(this, 0, height + 2)
@@ -1560,7 +1568,7 @@ Item {
                 objectName: "batchSelectAllBtn"
                 tooltip: I18n.tr("选中当前已加载的全部照片（继续滚动会加载更多）")
                 text: I18n.tr("全选")
-                width: 48
+                Layout.preferredWidth: 48
                 height: 30
                 onClicked: root.selectAllLoaded()
             }
@@ -1568,7 +1576,7 @@ Item {
                 objectName: "batchInvertBtn"
                 tooltip: I18n.tr("反选：取消已选中的，选中当前列表里其余未选中的（0.5.52）")
                 text: I18n.tr("反选")
-                width: 48
+                Layout.preferredWidth: 48
                 height: 30
                 onClicked: root.invertSelection()
             }
@@ -1576,7 +1584,7 @@ Item {
                 objectName: "batchClearBtn"
                 tooltip: I18n.tr("取消当前所有选中")
                 text: I18n.tr("取消选择")
-                width: 64
+                Layout.preferredWidth: 64
                 height: 30
                 onClicked: root.clearSelection()
             }

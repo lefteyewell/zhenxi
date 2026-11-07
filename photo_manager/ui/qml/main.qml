@@ -1988,6 +1988,7 @@ ApplicationWindow {
     }
 
     Dialog {
+    popupType: Popup.Item   /* 0.6.23：统一场景内渲染（原生顶层窗口在麒麟不显示/Windows 可能被主窗遮挡） */
         id: moveOutConfirm
         modal: true
         title: I18n.tr("确认移出")
@@ -2010,6 +2011,7 @@ ApplicationWindow {
     }
 
     Dialog {
+    popupType: Popup.Item   /* 0.6.23：统一场景内渲染（原生顶层窗口在麒麟不显示/Windows 可能被主窗遮挡） */
         id: initDbConfirm
         objectName: "initDbConfirm"
         modal: true
@@ -2065,6 +2067,7 @@ ApplicationWindow {
     /* 0.5.38：导出设置——格式（原始/JPG/PNG/WebP/TIFF）+ 分辨率
        （原始/短边1080/800/640，只缩小不放大） */
     Dialog {
+    popupType: Popup.Item   /* 0.6.23：统一场景内渲染（原生顶层窗口在麒麟不显示/Windows 可能被主窗遮挡） */
         id: exportDialog
         objectName: "exportDialog"
         modal: true
@@ -2359,6 +2362,7 @@ ApplicationWindow {
 
     /* 0.5.39：作废确认——说明按钮作用，确认后才生效 */
     Dialog {
+    popupType: Popup.Item   /* 0.6.23：统一场景内渲染（原生顶层窗口在麒麟不显示/Windows 可能被主窗遮挡） */
         id: archiveConfirm
         objectName: "archiveConfirm"
         modal: true
@@ -2432,6 +2436,7 @@ ApplicationWindow {
     /* 0.5.37：锁定只读——只改文件系统只读属性（防误删/误剪切），
        不写库、不动照片内容；「解除只读」随时可逆 */
     Dialog {
+    popupType: Popup.Item   /* 0.6.23：统一场景内渲染（原生顶层窗口在麒麟不显示/Windows 可能被主窗遮挡） */
         id: readOnlyDialog
         objectName: "readOnlyDialog"
         modal: true
@@ -2628,6 +2633,7 @@ ApplicationWindow {
 
     /* 删除相册确认（只删分组与关联，照片文件不受影响） */
     Dialog {
+    popupType: Popup.Item   /* 0.6.23：统一场景内渲染（原生顶层窗口在麒麟不显示/Windows 可能被主窗遮挡） */
         id: albumDeleteConfirm
         objectName: "albumDeleteConfirm"
         modal: true

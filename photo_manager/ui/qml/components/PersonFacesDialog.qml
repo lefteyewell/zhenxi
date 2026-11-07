@@ -26,6 +26,7 @@ import i18n 1.0
    归为新人物 / 并入其他人物 —— 解决聚类误并后"拆不开"的问题。
    红线：只动 faces.person_id 标签，绝不触碰照片文件。 */
 Dialog {
+    popupType: Popup.Item   /* 0.6.23：统一场景内渲染（原生顶层窗口在麒麟不显示/Windows 可能被主窗遮挡） */
     id: root
     objectName: "personFacesDialog"
 

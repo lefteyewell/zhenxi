@@ -27,6 +27,7 @@ import i18n 1.0
    支持合并（并入照片数多的一方）与忽略（跨扫描持久）。
    红线：合并只改 faces.person_id 标签，绝不触碰照片文件。 */
 Dialog {
+    popupType: Popup.Item   /* 0.6.23：统一场景内渲染（原生顶层窗口在麒麟不显示/Windows 可能被主窗遮挡） */
     id: root
     objectName: "dupPersonsDialog"
 

@@ -24,6 +24,7 @@ import i18n 1.0
 
 /* 批量打标签输入框：确认后发出 tagRequested(tag)（去首尾空格）。 */
 Dialog {
+    popupType: Popup.Item   /* 0.6.23：统一场景内渲染（原生顶层窗口在麒麟不显示/Windows 可能被主窗遮挡） */
     id: root
     objectName: "batchTagDialog"
     title: I18n.tr("批量打标签")

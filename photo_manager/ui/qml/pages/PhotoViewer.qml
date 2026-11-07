@@ -250,6 +250,7 @@ Window {
     }
 
     Dialog {
+    popupType: Popup.Item   /* 0.6.23：统一场景内渲染（原生顶层窗口在麒麟不显示/Windows 可能被主窗遮挡） */
         id: rejectConfirm
         objectName: "viewerRejectConfirm"
         modal: true

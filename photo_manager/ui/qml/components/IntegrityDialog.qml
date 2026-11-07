@@ -29,6 +29,7 @@ import i18n 1.0
    其余三类可「重新分析」：把照片置为待分析并重跑派生数据（缩略图/元数据/向量），
    只重建库内数据，绝不动原图。 */
 Dialog {
+    popupType: Popup.Item   /* 0.6.23：统一场景内渲染（原生顶层窗口在麒麟不显示/Windows 可能被主窗遮挡） */
     id: root
     objectName: "integrityDialog"
     title: I18n.tr("库完整性校验")

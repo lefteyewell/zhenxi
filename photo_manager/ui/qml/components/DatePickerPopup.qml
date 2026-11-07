@@ -70,6 +70,9 @@ Popup {
     }
 
     property int gridModelReset: 0
+    /* 网格行数：首日偏移 + 当月天数 ≤35 → 5 行，否则 6 行 */
+    property int _gridRows: ((new Date(shownYear, shownMonth, 1).getDay() + 6) % 7
+                             + new Date(shownYear, shownMonth + 1, 0).getDate()) > 35 ? 6 : 5
     /* 42 格（6 行 × 7 列，周一起始）：本月日期 + 前后月补位 */
     function _cellDate(i) {
         var first = new Date(shownYear, shownMonth, 1)
@@ -87,13 +90,15 @@ Popup {
     contentItem: ColumnLayout {
         spacing: 6
 
-        /* 年月表头：‹‹ ‹ 2026-11 › ›（无限翻页） */
+        /* 年月表头：‹‹ ‹ 2026-11 › ›（无限翻页）。
+           0.6.23：RowLayout 忽略子项显式 width——必须用 Layout.preferredWidth，
+           否则按钮按 implicit 96px 渲染把弹窗撑爆（用户截图月历显示不正确的根因） */
         RowLayout {
             Layout.fillWidth: true
             spacing: 4
 
-            PMButton { text: "«"; width: 36; height: 26; tooltip: I18n.tr("上一年"); onClicked: root._shiftMonths(-12) }
-            PMButton { text: "‹"; width: 30; height: 26; tooltip: I18n.tr("上个月"); onClicked: root._shiftMonths(-1) }
+            PMButton { text: "«"; Layout.preferredWidth: 34; Layout.preferredHeight: 26; tooltip: I18n.tr("上一年"); onClicked: root._shiftMonths(-12) }
+            PMButton { text: "‹"; Layout.preferredWidth: 30; Layout.preferredHeight: 26; tooltip: I18n.tr("上个月"); onClicked: root._shiftMonths(-1) }
             Item { Layout.fillWidth: true }
             Text {
                 text: root.shownYear + "-" + (root.shownMonth < 9 ? "0" : "") + (root.shownMonth + 1)
@@ -103,8 +108,8 @@ Popup {
                 color: Theme.text
             }
             Item { Layout.fillWidth: true }
-            PMButton { text: "›"; width: 30; height: 26; tooltip: I18n.tr("下个月"); onClicked: root._shiftMonths(1) }
-            PMButton { text: "»"; width: 36; height: 26; tooltip: I18n.tr("下一年"); onClicked: root._shiftMonths(12) }
+            PMButton { text: "›"; Layout.preferredWidth: 30; Layout.preferredHeight: 26; tooltip: I18n.tr("下个月"); onClicked: root._shiftMonths(1) }
+            PMButton { text: "»"; Layout.preferredWidth: 34; Layout.preferredHeight: 26; tooltip: I18n.tr("下一年"); onClicked: root._shiftMonths(12) }
         }
 
         /* 星期表头（周一起始） */
@@ -137,7 +142,8 @@ Popup {
             property int reset: root.gridModelReset
 
             Repeater {
-                model: 42
+                /* 0.6.23：行数随月份动态（35/42），不再渲染整行下月的空行 */
+                model: root._gridRows
 
                 delegate: Item {
                     width: 33
@@ -197,7 +203,8 @@ Popup {
 
             PMButton {
                 text: I18n.tr("今天")
-                height: 26
+                Layout.preferredWidth: 96
+                Layout.preferredHeight: 26
                 tooltip: I18n.tr("选中今天")
                 onClicked: {
                     var t = new Date()
@@ -209,7 +216,8 @@ Popup {
             Item { Layout.fillWidth: true }
             PMButton {
                 text: I18n.tr("清除")
-                height: 26
+                Layout.preferredWidth: 96
+                Layout.preferredHeight: 26
                 tooltip: I18n.tr("清除已选日期（不限）")
                 onClicked: {
                     root.selected = new Date(NaN)
