@@ -180,7 +180,10 @@ Item {
                                     width: 142
                                     height: 78
                                     fillMode: Image.PreserveAspectFit
-                                    source: m.thumb ? "file:///" + m.thumb.replace(/\\/g, "/") : ""
+                                    /* 0.6.23：thumb 直接给 Image（同 GalleryPage）——
+                                       此前 "file:///" + POSIX 绝对路径在麒麟拼出
+                                       file:////home/... 双斜杠，缩略图全部加载失败 */
+                                    source: m.thumb || ""
                                 }
                                 Text {
                                     width: parent.width

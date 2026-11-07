@@ -67,7 +67,9 @@ Item {
     }
 
     function updateBatchBar() {
-        batchBar.visible = root.multiSelect && root.checkedPaths.length > 0
+        /* 0.6.23：改为进多选模式即占位（常驻），不再「勾选后才插入一行」——
+           动态插入会把下方列表整体顶下去（用户感知为顶部多出一行、行错位叠加） */
+        batchBar.visible = root.multiSelect
     }
 
     function enterMulti() {
@@ -123,11 +125,15 @@ Item {
             }
         }
 
-        /* 多选批量条：选中节点后可「归入…」某个父节点 */
-        Row {
+        /* 多选批量条：选中节点后可「归入…」某个父节点。
+           0.6.23：外层 Row→RowLayout——positioner 里 Layout.fillHeight 无效，
+           内层 Rectangle 高度 0、内容溢出叠加到下方首行「场景」上（用户反馈） */
+        RowLayout {
             id: batchBar
             Layout.fillWidth: true
             Layout.preferredHeight: 40
+            /* 0.6.23：上限锁 40——内层 fillHeight 会把整行撑到数百像素 */
+            Layout.maximumHeight: 40
             Layout.leftMargin: Theme.spacingMedium
             Layout.rightMargin: Theme.spacingMedium
             visible: false
@@ -157,6 +163,7 @@ Item {
                         tooltip: I18n.tr("把所选标签移到指定父标签下")
                         text: I18n.tr("归入…")
                         height: 26
+                        enabled: root.checkedPaths.length > 0
                         anchors.verticalCenter: parent.verticalCenter
                         onClicked: root.moveRequested(root.checkedPaths.concat(["__pick__"]))
                     }
@@ -165,6 +172,7 @@ Item {
                         tooltip: I18n.tr("把所选标签移到顶层（取消父级）")
                         text: I18n.tr("移到顶层")
                         height: 26
+                        enabled: root.checkedPaths.length > 0
                         anchors.verticalCenter: parent.verticalCenter
                         onClicked: root.moveRequested(root.checkedPaths.concat(["__top__"]))
                     }

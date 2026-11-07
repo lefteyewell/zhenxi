@@ -205,7 +205,9 @@ Item {
                 font.pixelSize: 12
                 color: Theme.textDim
             }
-            Item { Layout.fillWidth: true; Layout.fillHeight: true }
+            /* 0.6.23：弹性填充只留 fillWidth——fillHeight 把标题行撑到数百像素、
+               照片列表被挤到底（与 GalleryPage 同款坑，人物/地点/设备页都中招） */
+            Item { Layout.fillWidth: true }
             PMButton {
                 objectName: "categorySortBtn"
                 tooltip: I18n.tr("切换列表排序方式（数量/名称）")
@@ -254,11 +256,15 @@ Item {
             }
         }
 
-        /* 批量合并条：进入多选模式后常驻占位（0.5.41），避免勾选第二个头像时列表跳动 */
-        Row {
+        /* 批量合并条：进入多选模式后常驻占位（0.5.41），避免勾选第二个头像时列表跳动。
+           0.6.23：外层 Row→RowLayout——positioner 里 Layout.fillHeight 无效，
+           内层 Rectangle 高度 0、内容溢出（与 TagTreePage 同款修复） */
+        RowLayout {
             id: batchBar
             Layout.fillWidth: true
             Layout.preferredHeight: 40
+            /* 0.6.23：上限锁 40——内层 fillHeight 会把整行撑到数百像素 */
+            Layout.maximumHeight: 40
             Layout.leftMargin: Theme.spacingMedium
             Layout.rightMargin: Theme.spacingMedium
             visible: root._batchMode
@@ -285,7 +291,7 @@ Item {
                         font.pixelSize: 12
                         color: Theme.text
                     }
-                    Item { Layout.fillWidth: true; Layout.fillHeight: true }
+                    Item { Layout.fillWidth: true }
                     PMButton {
                         objectName: "categoryDupForBtn"
                         visible: root.selectedIds.length === 1

@@ -380,18 +380,25 @@ Rectangle {
                 font.pixelSize: 12
                 color: Theme.textDim
             }
-            Text {
+            /* 0.6.23：白字描边压在照片上看不清（用户反馈）——加半透明胶囊衬底 */
+            Rectangle {
                 id: previewHint
                 anchors.bottom: parent.bottom
                 anchors.horizontalCenter: parent.horizontalCenter
                 anchors.margins: 6
                 visible: false
-                text: I18n.tr("点击查看大图")
-                font.family: Theme.fontFamily
-                font.pixelSize: 10
-                color: "white"
-                style: Text.Outline
-                styleColor: "black"
+                width: hintLabel.implicitWidth + 16
+                height: hintLabel.implicitHeight + 6
+                radius: height / 2
+                color: "#B3000000"
+                Text {
+                    id: hintLabel
+                    anchors.centerIn: parent
+                    text: I18n.tr("点击查看大图")
+                    font.family: Theme.fontFamily
+                    font.pixelSize: 10
+                    color: "white"
+                }
             }
             MouseArea {
                 anchors.fill: parent
