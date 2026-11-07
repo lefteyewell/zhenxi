@@ -132,8 +132,12 @@ Popup {
                             width: 20; height: 20; radius: 10
                             color: Theme.primary
                             border.width: 2; border.color: "white"
-                            Text { anchors.centerIn: parent; text: "√"
-                                   font.pixelSize: 12; font.weight: Font.Bold; color: "white" }
+                            /* 0.6.23：√ 根号改 Canvas 手绘对勾 */
+                            CheckMark {
+                                anchors.fill: parent
+                                anchors.margins: 4
+                                strokeWidth: 2
+                            }
                         }
                         Rectangle {
                             visible: modelData.kind === "faces" || modelData.kind === "stack"
@@ -164,8 +168,19 @@ Popup {
                             anchors.centerIn: parent
                             width: 22; height: 18; radius: 9
                             color: modelData.kind === "pick" ? "#2e7d32" : "#b71c1c"
-                            Text { anchors.centerIn: parent; text: modelData.label || ""
-                                   font.pixelSize: 10; font.weight: Font.DemiBold; color: "white" }
+                            /* 0.6.23：精选旗标的 √ 同改手绘对勾 */
+                            CheckMark {
+                                anchors.fill: parent
+                                anchors.margins: 3
+                                strokeWidth: 2
+                                visible: modelData.kind === "pick"
+                            }
+                            Text {
+                                anchors.centerIn: parent
+                                visible: modelData.kind === "reject"
+                                text: "×"
+                                font.pixelSize: 10; font.weight: Font.DemiBold; color: "white"
+                            }
                         }
                         Text {
                             visible: modelData.kind === "rating"

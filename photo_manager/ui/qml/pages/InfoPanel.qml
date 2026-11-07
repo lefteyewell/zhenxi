@@ -801,10 +801,12 @@ Rectangle {
                         topPadding: 5
                     }
                     Repeater {
+                        /* 0.6.23：去掉 📅📁📷 emoji——麒麟精简系统无字形显示
+                           方块（用户反馈「跳转小图标显示错误」），纯文字即可 */
                         model: [
-                            { label: I18n.tr("📅 同日"), kind: "date", val: root.currentDate },
-                            { label: I18n.tr("📁 同文件夹"), kind: "folder", val: root.currentFolder },
-                            { label: I18n.tr("📷 同相机"), kind: "camera", val: root.currentCamera }
+                            { label: I18n.tr("同日"), kind: "date", val: root.currentDate },
+                            { label: I18n.tr("同文件夹"), kind: "folder", val: root.currentFolder },
+                            { label: I18n.tr("同相机"), kind: "camera", val: root.currentCamera }
                         ]
                         delegate: Rectangle {
                             visible: model.modelData.val.length > 0

@@ -814,20 +814,6 @@ ApplicationWindow {
                         anchors.rightMargin: 8
                         spacing: 6
 
-                        /* 0.6.21：人脸搜图入口提到搜索栏左侧（原藏在搜索菜单
-                           深处，用户反馈找不到）——上传一张含人脸的图片按脸找照片
-                           0.6.22：◎ 圆点改为显式文字按钮（用户反馈：功能不明显，
-                           只有圆点不知道能上传人脸照片搜图） */
-                        PMButton {
-                            id: faceSearchBtn
-                            objectName: "faceSearchBtn"
-                            text: I18n.tr("人脸搜图")
-                            tooltip: I18n.tr("人脸搜图：上传一张含人脸的图片，找出库内含同一人物的照片")
-                            width: 92
-                            height: 30
-                            Layout.alignment: Qt.AlignVCenter
-                            onClicked: faceSearchPicker.openDialog()
-                        }
                         TextField {
                             id: searchField
                             objectName: "searchField"
@@ -921,6 +907,19 @@ ApplicationWindow {
                             }
                         }
                     }
+                }
+
+                /* 0.6.23：人脸搜图从搜索框里独立出来，成为顶栏单独按钮
+                   （用户反馈：搜索功能入口要分开，按钮要显眼） */
+                PMButton {
+                    id: faceSearchBtn
+                    objectName: "faceSearchBtn"
+                    text: I18n.tr("人脸搜图")
+                    tooltip: I18n.tr("人脸搜图：上传一张含人脸的图片，找出库内含同一人物的照片")
+                    width: 92
+                    height: 30
+                    Layout.alignment: Qt.AlignVCenter
+                    onClicked: faceSearchPicker.openDialog()
                 }
 
                 Text {

@@ -909,7 +909,7 @@ Item {
                         opacity: 0.9
                         visible: model.selected
                     }
-                    /* 左上角勾选徽标 */
+                    /* 左上角勾选徽标（0.6.23：√ 根号改 Canvas 手绘对勾） */
                     Rectangle {
                         visible: model.selected
                         anchors.top: parent.top
@@ -921,12 +921,10 @@ Item {
                         color: Theme.primary
                         border.width: 2
                         border.color: "white"
-                        Text {
-                            anchors.centerIn: parent
-                            text: "√"
-                            font.pixelSize: 12
-                            font.weight: Font.Bold
-                            color: "white"
+                        CheckMark {
+                            anchors.fill: parent
+                            anchors.margins: 4
+                            strokeWidth: 2
                         }
                     }
                     /* 0.5.44 视频：左下角 ▶ + 时长徽标（纯覆盖层，不影响点选/圈选） */
@@ -1020,6 +1018,8 @@ Item {
                         anchors.top: parent.top
                         anchors.right: parent.right
                         anchors.margins: 6
+                        /* 0.6.23：与「文」徽标依次堆叠（此前同位重叠） */
+                        anchors.topMargin: 6 + (model.hasText ? 20 : 0)
                         width: 18
                         height: 18
                         radius: 9
@@ -1041,17 +1041,18 @@ Item {
                         anchors.top: parent.top
                         anchors.right: parent.right
                         anchors.margins: 6
-                        anchors.topMargin: model.decodeError === true ? 26 : 6
+                        /* 0.6.23：右上角徽标改为依次下移——文/! 徽标此后与
+                           精选旗标徽标同位重叠、精选标志被盖住看不见（用户反馈） */
+                        anchors.topMargin: 6 + (model.hasText ? 20 : 0)
+                                           + (model.decodeError === true ? 20 : 0)
                         width: 22
                         height: 18
                         radius: 9
                         color: "#2e7d32"
-                        Text {
-                            anchors.centerIn: parent
-                            text: "√"
-                            font.pixelSize: 10
-                            font.weight: Font.DemiBold
-                            color: "white"
+                        CheckMark {
+                            anchors.fill: parent
+                            anchors.margins: 3
+                            strokeWidth: 2
                         }
                     }
                     Rectangle {
@@ -1077,6 +1078,8 @@ Item {
                         anchors.bottom: parent.bottom
                         anchors.left: parent.left
                         anchors.margins: 6
+                        /* 0.6.23：底部小字加衬底后，星星上移避让 */
+                        anchors.bottomMargin: 22
                         text: "★".repeat(model.rating)
                         font.pixelSize: 11
                         color: "#f5c842"
@@ -1118,18 +1121,30 @@ Item {
                              : model.colorLabel === "purple" ? "#8e24aa"
                              : "transparent"
                     }
-                    Text {
+                    /* 0.6.23：底部小字加半透明衬底——白字直接压在照片上
+                       遇亮部看不清（用户反馈），描边也救不回来 */
+                    Rectangle {
+                        visible: thumb.status === Image.Ready
                         anchors.bottom: parent.bottom
                         anchors.left: parent.left
                         anchors.right: parent.right
-                        anchors.margins: 6
+                        height: capText.implicitHeight + 6
+                        color: "#B3000000"
+                    }
+                    Text {
+                        id: capText
+                        visible: thumb.status === Image.Ready
+                        anchors.bottom: parent.bottom
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.leftMargin: 6
+                        anchors.rightMargin: 6
+                        anchors.bottomMargin: 3
                         text: (model.takenAt || "").slice(5) + "  " + model.name
                         font.family: Theme.fontFamily
-                        font.pixelSize: 9
+                        font.pixelSize: 10
                         color: "white"
                         elide: Text.ElideMiddle
-                        style: Text.Outline
-                        styleColor: "black"
                     }
                     } /* photoContent 结束 */
                 }
@@ -1329,8 +1344,8 @@ Item {
             Repeater {
                 model: [
                     {"label": I18n.tr("全部"), "mode": "all", "tip": I18n.tr("显示全部未作废的照片")},
-                    {"label": I18n.tr("精选 √"), "mode": "pick", "tip": I18n.tr("只显示打了「精选」旗标的照片")},
-                    {"label": I18n.tr("排除 ×"), "mode": "reject", "tip": I18n.tr("只显示打了「排除」旗标的照片（筛选候选）")},
+                    {"label": I18n.tr("精选"), "mode": "pick", "tip": I18n.tr("只显示打了「精选」旗标的照片")},
+                    {"label": I18n.tr("排除"), "mode": "reject", "tip": I18n.tr("只显示打了「排除」旗标的照片（筛选候选）")},
                     {"label": I18n.tr("已评级 ★"), "mode": "rated", "tip": I18n.tr("只显示评过星的照片（≥1★）")}
                 ]
                 delegate: Rectangle {
