@@ -1428,49 +1428,26 @@ Item {
                 }
             }
 
-            /* 视图下拉：默认视图/堆叠视图/分组视图（原两个独立开关合并） */
+            /* 0.6.23：恢复原版两个独立切换按钮（用户反馈：三态下拉单选效果不好，
+               勾选方式更直观）——堆叠 √ / 分组 √，语义与 0.5.55 原版一致 */
             PMButton {
-                objectName: "viewBtn"
-                text: (root.groupMode ? I18n.tr("分组视图")
-                       : root.stackMode ? I18n.tr("堆叠视图")
-                       : I18n.tr("默认视图")) + " ▾"
-                Layout.preferredWidth: 88
+                objectName: "stackToggleBtn"
+                tooltip: I18n.tr("连拍组按栈合并显示，每栈只显示代表帧，点击栈展开成员")
+                text: root.stackMode ? I18n.tr("堆叠视图 √") : I18n.tr("堆叠视图")
+                Layout.preferredWidth: 96
                 height: 30
-                tooltip: I18n.tr("切换照片排列方式：默认平铺 / 连拍堆叠 / 按文件夹分组")
-                onClicked: viewMenu.popup(this, 0, height + 2)
-                Menu {
-                    id: viewMenu
-                    popupType: Popup.Item
-                    width: 130
-                    MenuItem {
-                        text: I18n.tr("默认视图")
-                        checkable: true
-                        checked: !root.stackMode && !root.groupMode
-                        onTriggered: {
-                            if (root.stackMode) { root.stackMode = false; root.loadAll() }
-                            if (root.groupMode) root.toggleGroupMode()
-                        }
-                    }
-                    MenuItem {
-                        text: I18n.tr("堆叠视图")
-                        checkable: true
-                        checked: root.stackMode
-                        onTriggered: {
-                            if (root.groupMode) root.toggleGroupMode()
-                            if (!root.stackMode) { root.stackMode = true; root.loadStacks() }
-                        }
-                    }
-                    MenuItem {
-                        text: I18n.tr("分组视图")
-                        checkable: true
-                        checked: root.groupMode
-                        onTriggered: {
-                            if (root.stackMode) { root.stackMode = false }
-                            if (!root.groupMode) root.toggleGroupMode()
-                            else if (!root.stackMode) root.loadAll()
-                        }
-                    }
+                onClicked: {
+                    if (root.stackMode) { root.stackMode = false; root.loadAll() }
+                    else root.loadStacks()
                 }
+            }
+            PMButton {
+                objectName: "groupToggleBtn"
+                tooltip: I18n.tr("分组视图：全部照片按文件夹分组显示，点组头可折叠/展开（与排序解耦——开关状态会记住）")
+                text: root.groupMode ? I18n.tr("分组视图 √") : I18n.tr("分组视图")
+                Layout.preferredWidth: 96
+                height: 30
+                onClicked: root.toggleGroupMode()
             }
 
             /* 排序下拉（原 sortToggleBtn 原样移入本行） */
