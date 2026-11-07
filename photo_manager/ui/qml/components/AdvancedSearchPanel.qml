@@ -41,20 +41,54 @@ Popup {
 
     signal searchRequested(string query)
 
+    /* 0.6.23：日期选择行（年/月/日下拉，替代手输——用户反馈要格式约束）。
+       未选全年月日时 dateStr 为空串 = 不限。 */
+    component DateComboRow: Row {
+        spacing: 4
+        property string dateStr: yBox.currentIndex > 0 && mBox.currentIndex > 0 && dBox.currentIndex > 0
+            ? (1969 + yBox.currentIndex)
+              + "-" + (mBox.currentIndex < 10 ? "0" + mBox.currentIndex : mBox.currentIndex)
+              + "-" + (dBox.currentIndex < 10 ? "0" + dBox.currentIndex : dBox.currentIndex)
+            : ""
+        function reset() { yBox.currentIndex = 0; mBox.currentIndex = 0; dBox.currentIndex = 0 }
+        ComboBox {
+            id: yBox
+            width: 72; height: 28
+            font.pixelSize: 12
+            model: { var a = [I18n.tr("年")]; for (var y = 1970; y <= 2035; ++y) a.push(y); return a }
+        }
+        ComboBox {
+            id: mBox
+            width: 56; height: 28
+            font.pixelSize: 12
+            model: { var a = [I18n.tr("月")]; for (var m = 1; m <= 12; ++m) a.push(m); return a }
+        }
+        ComboBox {
+            id: dBox
+            width: 56; height: 28
+            font.pixelSize: 12
+            model: { var a = [I18n.tr("日")]; for (var d = 1; d <= 31; ++d) a.push(d); return a }
+        }
+    }
+
         function buildQuery() {
         var parts = []
         if (keywordField.text) parts.push(keywordField.text.trim())
         if (clipField.text.trim()) parts.push("clip:" + clipField.text.trim())
-        if (dateFromField.text || dateToField.text)
-            parts.push("dates:" + (dateFromField.text || "1970-01-01")
-                       + ".." + (dateToField.text || "2999-12-31"))
+        if (dateFromPick.dateStr || dateToPick.dateStr)
+            parts.push("dates:" + (dateFromPick.dateStr || "1970-01-01")
+                       + ".." + (dateToPick.dateStr || "2999-12-31"))
         if (cameraField.text) parts.push("camera:" + cameraField.text.trim())
         if (tagField.text) parts.push("tag:" + tagField.text.trim())
         if (personField.text) parts.push("person:" + personField.text.trim())
         if (gpsField.text.trim()) parts.push("gps:" + gpsField.text.trim())
         if (facesField.text.trim()) parts.push("faces:" + facesField.text.trim())
         if (ratingField.text.trim()) parts.push("rating:" + ratingField.text.trim())
-        if (flagBox.currentIndex > 0) parts.push("flag:" + flagBox.currentText)
+        /* 0.6.23：旗标选项显示中文（英文模式随 I18n 自动切英文），值仍用英文语法 */
+        if (flagBox.currentIndex > 0) {
+            var fv = ["", "pick", "reject", "none", "archive"][flagBox.currentIndex]
+            parts.push("flag:" + fv)
+        }
         if (colorBox.currentIndex > 0) {
             var cv = ["", "red", "yellow", "green", "blue", "purple", "none"][colorBox.currentIndex]
             parts.push("color:" + cv)
@@ -171,22 +205,8 @@ Popup {
                 color: Theme.textDim
                 width: 90
             }
-            TextField {
-                id: dateFromField
-            objectName: "dateFromField"
-                width: 150
-                height: 28
-                placeholderText: "2025-03-01"
-                color: Theme.text
-                font.pixelSize: 12
-                font.family: Theme.fontFamily
-                background: Rectangle {
-                    radius: 6
-                    color: Theme.bg
-                    border.width: 1
-                    border.color: Theme.divider
-                }
-            }
+            /* 0.6.23：手输日期改为年/月/日下拉选择（格式不会错） */
+            DateComboRow { id: dateFromPick; objectName: "dateFromPick" }
 
             Text {
                 text: I18n.tr("拍摄日期止")
@@ -195,22 +215,7 @@ Popup {
                 color: Theme.textDim
                 width: 90
             }
-            TextField {
-                id: dateToField
-            objectName: "dateToField"
-                width: 150
-                height: 28
-                placeholderText: "2025-12-31"
-                color: Theme.text
-                font.pixelSize: 12
-                font.family: Theme.fontFamily
-                background: Rectangle {
-                    radius: 6
-                    color: Theme.bg
-                    border.width: 1
-                    border.color: Theme.divider
-                }
-            }
+            DateComboRow { id: dateToPick; objectName: "dateToPick" }
 
             Text {
                 text: I18n.tr("相机")
@@ -368,7 +373,8 @@ Popup {
                 objectName: "flagBox"
                 width: 150
                 height: 28
-                model: [I18n.tr("全部"), "pick", "reject", "none", "archive"]
+                /* 0.6.23：中文显示（值在 buildQuery 里按序映射） */
+                model: [I18n.tr("全部"), I18n.tr("精选"), I18n.tr("排除"), I18n.tr("未设旗标"), I18n.tr("已作废")]
             }
 
             Text {
@@ -429,8 +435,8 @@ Popup {
                 onClicked: {
                     keywordField.text = ""
                     clipField.text = ""
-                    dateFromField.text = ""
-                    dateToField.text = ""
+                    dateFromPick.reset()
+                    dateToPick.reset()
                     cameraField.text = ""
                     tagField.text = ""
                     personField.text = ""

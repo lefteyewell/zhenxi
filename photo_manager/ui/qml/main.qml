@@ -909,6 +909,16 @@ ApplicationWindow {
                     }
                 }
 
+                /* 0.6.23：高级搜索独立按钮（用户要求放在人脸搜图左侧） */
+                PMButton {
+                    objectName: "topAdvSearchBtn"
+                    text: I18n.tr("高级搜索")
+                    tooltip: I18n.tr("组合条件搜索：关键词、日期、相机、旗标、色标等")
+                    width: 92
+                    height: 30
+                    onClicked: advancedSearch.open()
+                }
+
                 /* 0.6.23：人脸搜图从搜索框里独立出来，成为顶栏单独按钮
                    （用户反馈：搜索功能入口要分开，按钮要显眼） */
                 PMButton {
@@ -934,13 +944,14 @@ ApplicationWindow {
                     model: ThemeController ? ThemeController.schemeNames : []
                     currentIndex: ThemeController ? ThemeController.schemeIndex : 0
                     onActivated: ThemeController.setScheme(currentIndex)
-                    width: 96   /* 最长项"影棚深灰"4 字 + 指示箭头可完整显示（用户反馈原 110 太宽） */
+                    width: 80   /* 0.6.23：96→80（用户反馈太宽；最长项"影棚深灰"加箭头仍可显示） */
                     height: 32
                 }
 
                 PMButton {
                     text: Theme.dark ? I18n.tr("浅色") : I18n.tr("深色")
                     tooltip: I18n.tr("切换浅色/深色主题")
+                    width: 64   /* 0.6.23：限宽（默认 implicit 最小 96 太宽） */
                     onClicked: ThemeController.toggleDark()
                 }
 
@@ -1267,6 +1278,9 @@ ApplicationWindow {
                     anchors.margins: -4
                     hoverEnabled: true
                     cursorShape: Qt.SplitHCursor
+                    /* 0.6.23：麒麟上 MouseArea.cursorShape 偶发不生效——
+                       补一路 HoverHandler 光标（双保险，Windows 无影响） */
+                    HoverHandler { cursorShape: Qt.SplitHCursor }
                     onPositionChanged: (mouse) => {
                         if (mouse.buttons & Qt.LeftButton)
                             ThemeController.navWidth =
@@ -1632,6 +1646,8 @@ ApplicationWindow {
                     anchors.margins: -4
                     hoverEnabled: true
                     cursorShape: Qt.SplitHCursor
+                    /* 0.6.23：同 leftSplitter——麒麟光标双保险 */
+                    HoverHandler { cursorShape: Qt.SplitHCursor }
                     onPositionChanged: (mouse) => {
                         if (mouse.buttons & Qt.LeftButton)
                             ThemeController.infoWidth =
@@ -1785,6 +1801,9 @@ ApplicationWindow {
                 gallery.clearSelection()
                 infoPanel.showDetail({})
             }
+            /* 0.6.23：离开标签页自动退出多选（勾选与批量条一并清除） */
+            if (current !== 6)
+                tagsPage.exitMulti()
         }
     }
 

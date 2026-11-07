@@ -488,6 +488,16 @@ Item {
         _fetchMore()
     }
 
+    /* 0.6.23：批量操作统一入口——操作下拉菜单项与验收脚本共用
+       （MenuItem 的 C++ triggered 信号无法从 PySide 合成发射） */
+    function batchOp(kind) {
+        if (kind === "tag") batchTagRequested()
+        else if (kind === "export") batchExportRequested()
+        else if (kind === "moveout") batchMoveOutRequested()
+        else if (kind === "personmove") moveOutOfPersonRequested()
+        else if (kind === "copy") batchCopyRequested(selectedPathsText())
+    }
+
     /* 0.6.23：旗标即时反馈——信息面板/大图设置旗标后同步刷新网格角标。
        此前只写库不改网格行，× / √ 徽标要等重新进入视图才显隐（用户反馈）。
        正处于精选/排除筛选视图时集合本身变了 → 整表重载。 */
@@ -1273,8 +1283,11 @@ Item {
 
         /* 0.6.21 顶栏重写：此前是普通 Row + 无效的 Layout 附加属性——
            标题不限宽不省略（长人物名把右侧按钮挤出可视区）、弹性填充
-           Item 不生效（右侧大片空白）。改 RowLayout 修复布局与错位。 */
+           Item 不生效（右侧大片空白）。改 RowLayout 修复布局与错位。
+           0.6.23：筛选行 + 批量操作条并入本行（用户反馈按钮太多占三行），
+           objectName 保留 batchBar 供验收脚本（现恒可见，h=48）。 */
         RowLayout {
+            objectName: "batchBar"
             Layout.fillWidth: true
             Layout.preferredHeight: 48
             Layout.leftMargin: Theme.spacingMedium
@@ -1338,105 +1351,100 @@ Item {
                （Layout.preferredHeight 48）垂直拉伸到数百像素，照片网格
                被挤到只剩几像素（Windows 实测标题行 518px/网格 10px） */
             Item { Layout.fillWidth: true }
-            Text {
-                text: root.selectedIds.length > 0 ? I18n.tr("已选 ") + root.selectedIds.length + I18n.tr(" 张") : ""
-                Layout.alignment: Qt.AlignVCenter
-                Layout.rightMargin: Theme.spacingMedium
-                font.family: Theme.fontFamily
-                font.pixelSize: 12
-                color: Theme.primary
-            }
-        }
 
-        /* 快速筛选条：全部 / 精选 / 已评级 */
-        Row {
-            Layout.fillWidth: true
-            Layout.preferredHeight: 30
-            Layout.leftMargin: Theme.spacingMedium
-            Layout.rightMargin: Theme.spacingMedium
-            Layout.bottomMargin: 4
-            spacing: 6
+            /* ===== 0.6.23：筛选/视图/操作三个下拉 + 全选/反选/取消选择 ===== */
 
-            Text {
-                anchors.verticalCenter: parent.verticalCenter
-                text: I18n.tr("筛选：")
-                font.family: Theme.fontFamily
-                font.pixelSize: 11
-                color: Theme.textDim
-            }
-            Repeater {
-                model: [
-                    {"label": I18n.tr("全部"), "mode": "all", "tip": I18n.tr("显示全部未作废的照片")},
-                    {"label": I18n.tr("精选"), "mode": "pick", "tip": I18n.tr("只显示打了「精选」旗标的照片")},
-                    {"label": I18n.tr("排除"), "mode": "reject", "tip": I18n.tr("只显示打了「排除」旗标的照片（筛选候选）")},
-                    {"label": I18n.tr("已评级 ★"), "mode": "rated", "tip": I18n.tr("只显示评过星的照片（≥1★）")}
-                ]
-                delegate: Rectangle {
-                    id: chip
-                    width: chipText.implicitWidth + 18
-                    height: 24
-                    radius: 12
-                    color: (_mode === modelData.mode || (modelData.mode === "all" && _mode === "all"))
-                            ? Theme.primary : Theme.surfaceAlt
-                    border.width: 1
-                    border.color: Theme.divider
-                    Text {
-                        id: chipText
-                        anchors.centerIn: parent
-                        text: modelData.label
-                        font.family: Theme.fontFamily
-                        font.pixelSize: 11
-                        color: chip.color === Theme.primary ? "white" : Theme.text
+            /* 筛选下拉：全部/精选/排除/已评级（原 4 个 chip 合并） */
+            PMButton {
+                objectName: "filterBtn"
+                text: I18n.tr("筛选 ▾")
+                width: 64
+                height: 30
+                tooltip: I18n.tr("按旗标/评级筛选照片")
+                onClicked: filterMenu.popup(this, 0, height + 2)
+                Menu {
+                    id: filterMenu
+                    popupType: Popup.Item
+                    width: 140
+                    MenuItem {
+                        text: I18n.tr("全部")
+                        checkable: true
+                        checked: root._mode === "all"
+                        onTriggered: root.loadAll()
                     }
-                    MouseArea {
-                        id: chipArea
-                        anchors.fill: parent
-                        hoverEnabled: true
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: {
-                            if (modelData.mode === "all") root.loadAll()
-                            else if (modelData.mode === "pick") root.loadFlag("pick")
-                            else if (modelData.mode === "reject") root.loadFlag("reject")
-                            else root.loadRated(1)
+                    MenuItem {
+                        text: I18n.tr("精选")
+                        checkable: true
+                        checked: root._mode === "flag" && root._filterValue === "pick"
+                        onTriggered: root.loadFlag("pick")
+                    }
+                    MenuItem {
+                        text: I18n.tr("排除")
+                        checkable: true
+                        checked: root._mode === "flag" && root._filterValue === "reject"
+                        onTriggered: root.loadFlag("reject")
+                    }
+                    MenuItem {
+                        text: I18n.tr("已评级 ★")
+                        checkable: true
+                        checked: root._mode === "rated"
+                        onTriggered: root.loadRated(1)
+                    }
+                }
+            }
+
+            /* 视图下拉：默认视图/堆叠视图/分组视图（原两个独立开关合并） */
+            PMButton {
+                objectName: "viewBtn"
+                text: (root.groupMode ? I18n.tr("分组视图")
+                       : root.stackMode ? I18n.tr("堆叠视图")
+                       : I18n.tr("默认视图")) + " ▾"
+                width: 104
+                height: 30
+                tooltip: I18n.tr("切换照片排列方式：默认平铺 / 连拍堆叠 / 按文件夹分组")
+                onClicked: viewMenu.popup(this, 0, height + 2)
+                Menu {
+                    id: viewMenu
+                    popupType: Popup.Item
+                    width: 130
+                    MenuItem {
+                        text: I18n.tr("默认视图")
+                        checkable: true
+                        checked: !root.stackMode && !root.groupMode
+                        onTriggered: {
+                            if (root.stackMode) { root.stackMode = false; root.loadAll() }
+                            if (root.groupMode) root.toggleGroupMode()
                         }
                     }
-                    ToolTip.visible: chipArea.containsMouse
-                    ToolTip.delay: 550
-                    ToolTip.text: modelData.tip
+                    MenuItem {
+                        text: I18n.tr("堆叠视图")
+                        checkable: true
+                        checked: root.stackMode
+                        onTriggered: {
+                            if (root.groupMode) root.toggleGroupMode()
+                            if (!root.stackMode) { root.stackMode = true; root.loadStacks() }
+                        }
+                    }
+                    MenuItem {
+                        text: I18n.tr("分组视图")
+                        checkable: true
+                        checked: root.groupMode
+                        onTriggered: {
+                            if (root.stackMode) { root.stackMode = false }
+                            if (!root.groupMode) root.toggleGroupMode()
+                            else if (!root.stackMode) root.loadAll()
+                        }
+                    }
                 }
             }
-            Item { width: 12 }
-            PMButton {
-                objectName: "stackToggleBtn"
-                tooltip: I18n.tr("连拍组按栈合并显示，每栈只显示代表帧，点击栈展开成员")
-                text: root.stackMode ? I18n.tr("堆叠视图 √") : I18n.tr("堆叠视图")
-                width: 96
-                height: 24
-                anchors.verticalCenter: parent.verticalCenter
-                onClicked: {
-                    if (root.stackMode) { root.stackMode = false; root.loadAll() }
-                    else root.loadStacks()
-                }
-            }
-            Item { width: 6 }
-            /* 0.5.55：分组视图独立开关（与堆叠视图同型；仅全部照片视图生效） */
-            PMButton {
-                objectName: "groupToggleBtn"
-                tooltip: I18n.tr("分组视图：全部照片按文件夹分组显示，点组头可折叠/展开（0.5.55；\n与排序解耦——排序保持原样，开关状态会记住）")
-                text: root.groupMode ? I18n.tr("分组视图 √") : I18n.tr("分组视图")
-                width: 96
-                height: 24
-                anchors.verticalCenter: parent.verticalCenter
-                onClicked: root.toggleGroupMode()
-            }
-            Item { width: 6 }
-            /* 0.5.36：排序选择（默认折叠，点击展开菜单） */
+
+            /* 排序下拉（原 sortToggleBtn 原样移入本行） */
             PMButton {
                 objectName: "sortToggleBtn"
                 tooltip: I18n.tr("选择缩略图排列顺序：时间、文件名、文件夹、相机、评级、大小")
-                text: I18n.tr("排序：▸ ") + root._sortLabel(root.sortKey)
-                height: 24
-                anchors.verticalCenter: parent.verticalCenter
+                text: I18n.tr("排序 ▾")
+                width: 68
+                height: 30
                 onClicked: sortMenu.popup(this, 0, height + 2)
                 Menu {
                     id: sortMenu
@@ -1455,98 +1463,101 @@ Item {
                     }
                 }
             }
-        }
 
-        /* 批量操作条：0.5.67 改为固定显示（用户反馈：不选择也应可见）。
-           0.5.36 改 Flow 自适应换行，窗口缩小时按钮折到下一行而不是被截断 */
-        Rectangle {
-            objectName: "batchBar"
-            Layout.fillWidth: true
-            Layout.preferredHeight: Math.max(42, batchFlow.implicitHeight + 14)
-            Layout.leftMargin: Theme.spacingMedium
-            Layout.rightMargin: Theme.spacingMedium
-            Layout.bottomMargin: Theme.spacingSmall
-            radius: Theme.radiusMedium
-            color: root.selectedIds.length > 0 ? Theme.primary : Theme.surfaceAlt
-            opacity: 0.95
-
-            Flow {
-                id: batchFlow
-                anchors.fill: parent
-                anchors.margins: 7
-                spacing: Theme.spacingSmall
-
-                Text {
-                    text: root.selectedIds.length > 0
-                          ? I18n.tr("已选 ") + root.selectedIds.length + I18n.tr(" 张")
-                          : I18n.tr("未选择照片")
-                    height: 30
-                    verticalAlignment: Text.AlignVCenter
-                    rightPadding: 4
-                    font.family: Theme.fontFamily
-                    font.pixelSize: 13
-                    font.weight: Font.DemiBold
-                    color: "white"
-                }
-                PMButton {
-                    objectName: "batchTagBtn"
-                    tooltip: I18n.tr("给所选照片批量添加标签")
-                    text: I18n.tr("打标签…")
-                    height: 30
-                    onClicked: root.batchTagRequested()
-                }
-                PMButton {
-                    objectName: "batchExportBtn"
-                    tooltip: I18n.tr("把所选照片导出到文件夹，可选格式（原始/JPG/PNG/WebP/TIFF）与分辨率")
-                    text: I18n.tr("导出…")
-                    height: 30
-                    onClicked: root.batchExportRequested()
-                }
-                PMButton {
-                    objectName: "batchMoveOutBtn"
-                    tooltip: I18n.tr("把所选照片移出到指定文件夹并从索引清除（文件不删除，可重新导入）")
-                    text: I18n.tr("移出…")
-                    height: 30
-                    onClicked: root.batchMoveOutRequested()
-                }
-                PMButton {
-                    objectName: "batchPersonMoveBtn"
-                    tooltip: I18n.tr("把所选照片从当前人物移出（人脸归属改回未命名）")
-                    text: I18n.tr("移出人物…")
-                    visible: root._mode === "person"
-                    height: 30
-                    onClicked: root.moveOutOfPersonRequested()
-                }
-                PMButton {
-                    objectName: "batchCopyBtn"
-                    tooltip: I18n.tr("把所选照片的完整文件路径复制到剪贴板")
-                    text: I18n.tr("复制路径")
-                    height: 30
-                    onClicked: root.batchCopyRequested(root.selectedPathsText())
-                }
-                PMButton {
-                    objectName: "batchSelectAllBtn"
-                    tooltip: I18n.tr("选中当前已加载的全部照片（继续滚动会加载更多）")
-                    text: I18n.tr("全选")
-                    height: 30
-                    onClicked: root.selectAllLoaded()
-                }
-                PMButton {
-                    objectName: "batchInvertBtn"
-                    tooltip: I18n.tr("反选：取消已选中的，选中当前列表里其余未选中的（0.5.52）")
-                    text: I18n.tr("反选")
-                    height: 30
-                    onClicked: root.invertSelection()
-                }
-                PMButton {
-                    objectName: "batchClearBtn"
-                    tooltip: I18n.tr("取消当前所有选中")
-                    text: I18n.tr("取消选择")
-                    height: 30
-                    onClicked: root.clearSelection()
+            /* 操作下拉：打标签/导出/移出/复制路径（原批量操作条合并）。
+               未选择时显示「操作」，选择后显示最近一次所选操作。 */
+            PMButton {
+                objectName: "opsBtn"
+                property string lastOp: ""
+                text: lastOp !== "" ? lastOp : I18n.tr("操作")
+                width: 84
+                height: 30
+                tooltip: I18n.tr("对所选照片批量操作：打标签 / 导出 / 移出 / 复制路径")
+                onClicked: opsMenu.popup(this, 0, height + 2)
+                Menu {
+                    id: opsMenu
+                    objectName: "opsMenu"
+                    popupType: Popup.Item
+                    width: 130
+                    MenuItem {
+                        objectName: "batchTagBtn"
+                        text: I18n.tr("打标签…")
+                        onTriggered: {
+                            opsBtn.lastOp = I18n.tr("打标签…")
+                            root.batchOp("tag")
+                        }
+                    }
+                    MenuItem {
+                        objectName: "batchExportBtn"
+                        text: I18n.tr("导出…")
+                        onTriggered: {
+                            opsBtn.lastOp = I18n.tr("导出…")
+                            root.batchOp("export")
+                        }
+                    }
+                    MenuItem {
+                        objectName: "batchMoveOutBtn"
+                        text: I18n.tr("移出…")
+                        onTriggered: {
+                            opsBtn.lastOp = I18n.tr("移出…")
+                            root.batchOp("moveout")
+                        }
+                    }
+                    MenuItem {
+                        objectName: "batchPersonMoveBtn"
+                        text: I18n.tr("移出人物…")
+                        visible: root._mode === "person"
+                        onTriggered: {
+                            opsBtn.lastOp = I18n.tr("移出人物…")
+                            root.batchOp("personmove")
+                        }
+                    }
+                    MenuItem {
+                        objectName: "batchCopyBtn"
+                        text: I18n.tr("复制路径")
+                        onTriggered: {
+                            opsBtn.lastOp = I18n.tr("复制路径")
+                            root.batchOp("copy")
+                        }
+                    }
                 }
             }
+
+            PMButton {
+                objectName: "batchSelectAllBtn"
+                tooltip: I18n.tr("选中当前已加载的全部照片（继续滚动会加载更多）")
+                text: I18n.tr("全选")
+                width: 56
+                height: 30
+                onClicked: root.selectAllLoaded()
+            }
+            PMButton {
+                objectName: "batchInvertBtn"
+                tooltip: I18n.tr("反选：取消已选中的，选中当前列表里其余未选中的（0.5.52）")
+                text: I18n.tr("反选")
+                width: 56
+                height: 30
+                onClicked: root.invertSelection()
+            }
+            PMButton {
+                objectName: "batchClearBtn"
+                tooltip: I18n.tr("取消当前所有选中")
+                text: I18n.tr("取消选择")
+                width: 76
+                height: 30
+                onClicked: root.clearSelection()
+            }
+
+            Text {
+                text: root.selectedIds.length > 0 ? I18n.tr("已选 ") + root.selectedIds.length + I18n.tr(" 张") : ""
+                Layout.alignment: Qt.AlignVCenter
+                font.family: Theme.fontFamily
+                font.pixelSize: 12
+                color: Theme.primary
+            }
         }
+
+        /* 0.6.23：原快速筛选行与批量操作条已并入上方标题行（筛选/视图/排序/操作下拉 + 全选/反选/取消选择） */
 
         RowLayout {
             Layout.fillWidth: true

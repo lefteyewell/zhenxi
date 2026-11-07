@@ -78,6 +78,14 @@ Item {
         root.updateBatchBar()
     }
 
+    /* 0.6.23：离开标签页时由 main.qml 调用——多选状态不再跨页面滞留 */
+    function exitMulti() {
+        if (!root.multiSelect) return
+        root.multiSelect = false
+        root.checkedPaths = []
+        root.updateBatchBar()
+    }
+
     ColumnLayout {
         anchors.fill: parent
         spacing: 0

@@ -1102,6 +1102,24 @@ def main() -> int:
         QTest.qWait(300)
         return True
 
+    def gal0():
+        return find("gallery")
+
+    def open_ops_menu() -> bool:
+        """0.6.23：批量操作合并进「操作」下拉。offscreen 下 QTest 合成点击
+        开不了 popup、也无法发射 MenuItem 的 C++ triggered 信号——菜单用
+        invokeMethod("open") 验证可开（真机点击路径与排序菜单一致），
+        随后经 QML batchOp(kind) 统一入口驱动各流程。"""
+        m = find_obj("opsMenu")
+        if not m:
+            return False
+        m.metaObject().invokeMethod(m, "open")
+        QTest.qWait(300)
+        opened = bool(m.property("opened"))
+        m.metaObject().invokeMethod(m, "close")
+        QTest.qWait(200)
+        return opened
+
     for b in ["btnTools", "btnHelp", "btnScan", "btnPaths", "btnExport",
               "btnAdvancedSearch", "btnBackup", "btnSyncOut", "btnSyncIn"]:
         report(f"A2 按钮存在 {b}", find(b) is not None)
@@ -1408,7 +1426,8 @@ def main() -> int:
             fm = list(fb.property("model") or []) if fb else []
             tm = list(tb.property("model") or []) if tb else []
             detail += f" flag模型={fm} type模型={tm}"
-            model_ok = ("pick" in fm) and ("none" in fm) and ("raw" in tm)
+            # 0.6.23：旗标选项中文化（值在 buildQuery 按序映射 pick/reject/none/archive）
+            model_ok = (fm == ["全部", "精选", "排除", "未设旗标", "已作废"]) and ("raw" in tm)
         except Exception:
             model_ok = True  # 读模型失败不阻塞主断言
         # 关闭弹窗
@@ -1902,7 +1921,9 @@ def main() -> int:
 
         # 批量打标签全流程：打标签按钮 → 弹窗输入 → 确定 → Toast 与库中落库
         tag_c1a = "界面批量C1"
-        click(find("batchTagBtn"), "batchTagBtn")
+        open_ops_menu()
+        QMetaObject.invokeMethod(gal0(), "batchOp", Q_ARG("QVariant", "tag"))
+        QTest.qWait(300)
         QTest.qWait(250)
         dlg = find_obj("batchTagDialog")
         ok_open = dlg is not None and bool(dlg.property("opened"))
@@ -1977,7 +1998,9 @@ def main() -> int:
         # 复制路径：Toast 反馈
         gui_bridge.setClipboard("")
         QTest.qWait(100)
-        click(find("batchCopyBtn"), "batchCopyBtn")
+        open_ops_menu()
+        QMetaObject.invokeMethod(gal0(), "batchOp", Q_ARG("QVariant", "copy"))
+        QTest.qWait(300)
         QTest.qWait(300)
         from PySide6.QtGui import QGuiApplication as _QGA2
         clip_now = _QGA2.clipboard().text()
@@ -1991,7 +2014,9 @@ def main() -> int:
         if cells3:
             click(cells3[0])
             QTest.qWait(250)
-        click(find("batchExportBtn"), "batchExportBtn")
+        open_ops_menu()
+        QMetaObject.invokeMethod(gal0(), "batchOp", Q_ARG("QVariant", "export"))
+        QTest.qWait(300)
         QTest.qWait(250)
         exp_dlg = find_obj("exportDialog")
         ok_exp_pk = exp_dlg is not None and bool(exp_dlg.property("opened"))
@@ -2009,6 +2034,10 @@ def main() -> int:
             if any(exp_dir.iterdir()):
                 exp_ok = True
                 break
+        # 0.6.23：无论落盘与否关闭导出弹窗——模态不关会挡住后续时间线/人物流程
+        if ok_exp_pk and exp_dlg is not None and bool(exp_dlg.property("opened")):
+            exp_dlg.metaObject().invokeMethod(exp_dlg, "close")
+            QTest.qWait(250)
         report("A40 批量导出端到端", ok_exp_pk and exp_ok,
                f"picker={ok_exp_pk} 落盘={exp_ok} {[p.name for p in exp_dir.iterdir()][:1] if exp_dir.exists() else ''}")
     else:
@@ -2198,14 +2227,16 @@ def main() -> int:
                 if gcells:
                     click(gcells[0])
                     QTest.qWait(300)
+        # 0.6.23：移出人物是「操作」下拉中的菜单项（person 模式可见）
         pm_btn = find("batchPersonMoveBtn")
-        ok_btn_pp = pm_btn is not None and bool(pm_btn.property("visible"))
+        ok_btn_pp = pm_btn is not None
+        if ok_btn_pp:
+            ok_btn_pp = open_ops_menu()
     report("A52 移出人物按钮", ok_btn_pp)
 
     ok_mv = False
     if ok_btn_pp:
-        pm_btn = find("batchPersonMoveBtn")
-        click(pm_btn, "batchPersonMoveBtn")
+        QMetaObject.invokeMethod(gal0(), "batchOp", Q_ARG("QVariant", "personmove"))
         QTest.qWait(300)
         mvd = find_obj("personMoveDialog")
         ok_open = mvd is not None and bool(mvd.property("opened"))
