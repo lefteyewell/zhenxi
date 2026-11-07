@@ -2,7 +2,7 @@
 
 **Zhenxi** — local photo management software for photographers: fast retrieval (faces / text /
 EXIF / folders / arbitrary combinations), thumbnails and full-size viewing,
-batch export at common resolutions — **the app never deletes your original
+batch export at common resolutions — **the app never deletes or modifies your original
 files**.
 
 ## Latest release v0.6.19 (2026-11-05)
