@@ -1323,7 +1323,7 @@ Item {
             RowLayout {
                 id: opsRow
                 height: 48
-                width: Math.max(batchBar.availableWidth, opsRow.implicitWidth)
+                width: Math.max(batchBar.width, opsRow.implicitWidth)
                 spacing: Theme.spacingSmall
 
             PMButton {

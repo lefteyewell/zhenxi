@@ -252,6 +252,8 @@ Window {
     Dialog {
     popupType: Popup.Item   /* 0.6.23：统一场景内渲染（原生顶层窗口在麒麟不显示/Windows 可能被主窗遮挡） */
         id: rejectConfirm
+        closePolicy: Popup.CloseOnEscape
+    /* 0.6.23：确认弹窗不允许点击外部关闭（防菜单打开瞬间被逸散点击经 CloseOnPressOutside 自关） */
         objectName: "viewerRejectConfirm"
         modal: true
         width: 460

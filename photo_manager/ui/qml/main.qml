@@ -1325,17 +1325,20 @@ ApplicationWindow {
                     onPersonFacesRequested: (personId) => {
                         personFacesDialog.openFor(personId)
                     }
+                    /* 0.6.23：菜单点击触发的弹窗一律 Qt.callLater 延迟一拍打开——
+                       同一事件级联里「关闭菜单 + 打开弹窗」会让弹窗不显示
+                       或被随后的逸散点击经 CloseOnPressOutside 瞬间自关（真机复现） */
                     onBatchTagRequested: {
                         batchTagDialog.label = I18n.tr("为所选 ") + gallery.selectedIds.length + I18n.tr(" 张照片添加标签：")
-                        batchTagDialog.open()
+                        Qt.callLater(batchTagDialog.open)
                     }
-                    onBatchExportRequested: exportDialog.open()
+                    onBatchExportRequested: Qt.callLater(exportDialog.open)
                     /* 0.6.23：操作下拉「作废（不删除）」→ 既有作废确认弹窗 */
                     onBatchArchiveRequested: {
                         archiveConfirm.pendingCount = gallery.selectedIds.length
-                        archiveConfirm.open()
+                        Qt.callLater(archiveConfirm.open)
                     }
-                    onBatchMoveOutRequested: moveOutPicker.openDialog()
+                    onBatchMoveOutRequested: Qt.callLater(moveOutPicker.openDialog)
                     onBatchCopyRequested: (paths) => {
                         LibraryBridge.setClipboard(paths)
                         toastLayer.show(I18n.tr("已复制 ") + gallery.selectedIds.length + I18n.tr(" 条路径到剪贴板"), "success")
@@ -1990,6 +1993,8 @@ ApplicationWindow {
     Dialog {
     popupType: Popup.Item   /* 0.6.23：统一场景内渲染（原生顶层窗口在麒麟不显示/Windows 可能被主窗遮挡） */
         id: moveOutConfirm
+        closePolicy: Popup.CloseOnEscape
+    /* 0.6.23：确认弹窗不允许点击外部关闭（防菜单打开瞬间被逸散点击经 CloseOnPressOutside 自关） */
         modal: true
         title: I18n.tr("确认移出")
         standardButtons: Dialog.Yes | Dialog.No
@@ -2013,6 +2018,8 @@ ApplicationWindow {
     Dialog {
     popupType: Popup.Item   /* 0.6.23：统一场景内渲染（原生顶层窗口在麒麟不显示/Windows 可能被主窗遮挡） */
         id: initDbConfirm
+        closePolicy: Popup.CloseOnEscape
+    /* 0.6.23：确认弹窗不允许点击外部关闭（防菜单打开瞬间被逸散点击经 CloseOnPressOutside 自关） */
         objectName: "initDbConfirm"
         modal: true
         title: I18n.tr("初始化数据库")
@@ -2364,6 +2371,8 @@ ApplicationWindow {
     Dialog {
     popupType: Popup.Item   /* 0.6.23：统一场景内渲染（原生顶层窗口在麒麟不显示/Windows 可能被主窗遮挡） */
         id: archiveConfirm
+        closePolicy: Popup.CloseOnEscape
+    /* 0.6.23：确认弹窗不允许点击外部关闭（防菜单打开瞬间被逸散点击经 CloseOnPressOutside 自关） */
         objectName: "archiveConfirm"
         modal: true
         width: 480
@@ -2635,6 +2644,8 @@ ApplicationWindow {
     Dialog {
     popupType: Popup.Item   /* 0.6.23：统一场景内渲染（原生顶层窗口在麒麟不显示/Windows 可能被主窗遮挡） */
         id: albumDeleteConfirm
+        closePolicy: Popup.CloseOnEscape
+    /* 0.6.23：确认弹窗不允许点击外部关闭（防菜单打开瞬间被逸散点击经 CloseOnPressOutside 自关） */
         objectName: "albumDeleteConfirm"
         modal: true
         title: I18n.tr("删除相册")

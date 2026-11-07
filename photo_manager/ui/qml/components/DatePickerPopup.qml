@@ -142,8 +142,9 @@ Popup {
             property int reset: root.gridModelReset
 
             Repeater {
-                /* 0.6.23：行数随月份动态（35/42），不再渲染整行下月的空行 */
-                model: root._gridRows
+                /* 0.6.23：格数 = 行数×7（Grid columns=7，model 是 Cell 数不是行数！
+                   此前误写行数导致整月只渲染一行——用户实测反馈） */
+                model: root._gridRows * 7
 
                 delegate: Item {
                     width: 33
