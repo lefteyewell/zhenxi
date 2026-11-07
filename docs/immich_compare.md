@@ -147,4 +147,4 @@ Immich 真正「厉害但抄不动」的部分（私有云、多端同步、shar
 
 - Immich 官网 Features：https://immich.app/features
 - Immich 发布动态（v3.0，2026-07）：社区/媒体综述（GitHub ~100k stars，AGPL-3.0）
-- 本项目能力核实：`docs/DEVELOPMENT.md`、`docs/stage4_report.md`、`.workbuddy/memory/MEMORY.md`（CLIP 已落地验证、autotag 仅关键词匹配、离线/不删除红线）
+- 本项目能力核实：`docs/DEVELOPMENT.md`、`docs/stage4_report.md`（CLIP 已落地验证、autotag 仅关键词匹配、离线/不删除红线）

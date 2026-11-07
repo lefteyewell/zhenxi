@@ -135,7 +135,7 @@
 ## 7. 参考
 
 - `docs/immich_compare.md`（决策底稿，含功能矩阵与优先级）
-- `.workbuddy/memory/MEMORY.md`（CLIP 已验证、autotag 仅关键词、不删除红线、离线约束）
+- （CLIP 已验证、autotag 仅关键词、不删除红线、离线约束）
 
 ---
 
