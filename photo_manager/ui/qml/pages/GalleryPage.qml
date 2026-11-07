@@ -333,7 +333,7 @@ Item {
         else if (_mode === "facesearch")
             arr = LibraryBridge.faceSearchPhotos(_loaded, 500)
         else
-            arr = LibraryBridge.searchPhotos(pageTitle.slice(3), _loaded, 500)
+            arr = LibraryBridge.searchPhotos(root._titleArg, _loaded, 500)
         _append(arr)
     }
 
@@ -626,10 +626,10 @@ Item {
         else if (_mode === "rated") loadRated(_filterValue)
         else if (_mode === "flag") loadFlag(_filterValue)
         else if (_mode === "stacks") loadStacks()
-        else if (_mode === "album") loadAlbum(_filterValue, pageTitle.slice(3))
+        else if (_mode === "album") loadAlbum(_filterValue, root._titleArg)
         else if (_mode === "similar") loadSimilar()
         else if (_mode === "facesearch") loadFaceSearch()
-        else search(pageTitle.slice(3))
+        else search(root._titleArg)
         root.selectedIds = keepSel
     }
 
