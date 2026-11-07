@@ -161,6 +161,8 @@ Rectangle {
     signal assignFaceRequested(int faceId)
     /* kind: date | folder | camera | tag（标签值由标签 chips 逐个发出） */
     signal jumpRequested(string kind, string value)
+    /* 0.6.23：旗标变更通知——网格据此即时刷新 × / √ 角标（此前不通知） */
+    signal flagChanged(int photoId, string flag)
 
     /* 摘要/折叠区数据行（showDetail 填充） */
     property string takenAtLine: ""
@@ -237,6 +239,7 @@ Rectangle {
         if (currentId < 0) return
         LibraryBridge.setFlag(currentId, f)
         currentFlag = f
+        root.flagChanged(currentId, f)
         root.toastRequested(f === "pick" ? I18n.tr("已标记精选") :
                            f === "reject" ? I18n.tr("已标记排除") : I18n.tr("已清除旗标"), "success")
     }

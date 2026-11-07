@@ -488,6 +488,29 @@ Item {
         _fetchMore()
     }
 
+    /* 0.6.23：旗标即时反馈——信息面板/大图设置旗标后同步刷新网格角标。
+       此前只写库不改网格行，× / √ 徽标要等重新进入视图才显隐（用户反馈）。
+       正处于精选/排除筛选视图时集合本身变了 → 整表重载。 */
+    function updateFlagFor(pid, flag) {
+        var i, it
+        for (i = 0; i < gridModel.count; ++i) {
+            it = gridModel.get(i)
+            if (it.id === pid && it.flag !== flag)
+                gridModel.setProperty(i, "flag", flag)
+        }
+        var g, j, m, it2
+        for (g = 0; g < _groupStore.length; ++g) {
+            m = _groupStore[g].model
+            for (j = 0; j < m.count; ++j) {
+                it2 = m.get(j)
+                if (it2.id === pid && it2.flag !== flag)
+                    m.setProperty(j, "flag", flag)
+            }
+        }
+        if (_mode === "flag")
+            loadFlag(_filterValue)
+    }
+
     function loadStacks() {
         root._setTitle("stack", "")
         _mode = "stacks"

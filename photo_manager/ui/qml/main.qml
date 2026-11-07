@@ -1652,6 +1652,8 @@ ApplicationWindow {
                 Layout.rightMargin: Theme.spacingSmall
                 onOpenPhoto: (url, title, photoId) => photoViewer.showPhoto(url, title, photoId)
                 onToastRequested: (text, kind) => toastLayer.show(text, kind)
+                /* 0.6.23：旗标变更 → 网格角标即时显隐 */
+                onFlagChanged: (pid, f) => gallery.updateFlagFor(pid, f)
                 onTagPickerRequested: tagPicker.openPicker()
                 onAssignFaceRequested: (faceId) => {
                     personMoveDialog.faceMode = true
@@ -3034,6 +3036,8 @@ ApplicationWindow {
     /* 大图查看独立窗口（屏幕居中，可调大小） */
     PhotoViewer {
         id: photoViewer
+        /* 0.6.23：旗标变更 → 网格角标即时显隐（大图内 P/X/U 后关图即见） */
+        onFlagChanged: (pid, f) => gallery.updateFlagFor(pid, f)
         onAssignFaceRequested: (faceId) => {
             personMoveDialog.faceMode = true
             personMoveDialog.faceId = faceId

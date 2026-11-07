@@ -62,6 +62,8 @@ Window {
     /* 0.5.29：当前照片变化（翻页/跳转/评级/旗标）时通知主窗口，
        右侧信息面板自动跟随，避免基于旧信息误操作 */
     signal currentChanged(int photoId)
+    /* 0.6.23：旗标变更通知——关闭大图后网格 × / √ 角标即时显隐 */
+    signal flagChanged(int photoId, string flag)
     /* 0.5.64：当前照片为损坏文件（photos.decode_error）时显示底部提示条 */
     property bool _decodeWarn: false
 
@@ -101,9 +103,11 @@ Window {
 
     function _setFlag(f) {
         if (_index < 0) return
-        LibraryBridge.setFlag(_ids[_index], f)
+        var pid = _ids[_index]
+        LibraryBridge.setFlag(pid, f)
         _curFlag = f
         _loadMeta()
+        root.flagChanged(pid, f)
     }
 
     function showPhoto(url, title, photoId) {
