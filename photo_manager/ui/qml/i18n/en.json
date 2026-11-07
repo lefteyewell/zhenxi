@@ -1585,5 +1585,6 @@
 "四": "Th",
 "五": "Fr",
 "六": "Sa",
-"日": "Su"
+"日": "Su",
+"输入关键词后回车搜索；也支持日期、旗标、相机、语义等语法（详见高级搜索）": "Type and press Enter to search; date/flag/camera/semantic syntax is also supported (see Advanced Search)"
 }

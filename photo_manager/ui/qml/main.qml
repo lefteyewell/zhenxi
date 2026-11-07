@@ -825,6 +825,12 @@ ApplicationWindow {
                             background: Rectangle { color: "transparent" }
                             font.pixelSize: 12
                             font.family: Theme.fontFamily
+                            /* 0.6.23：搜索栏气泡提示 */
+                            HoverHandler { id: searchFieldHover }
+                            ToolTip.visible: searchFieldHover.hovered && text.length === 0
+                            ToolTip.delay: 550
+                            ToolTip.timeout: 4000
+                            ToolTip.text: I18n.tr("输入关键词后回车搜索；也支持日期、旗标、相机、语义等语法（详见高级搜索）")
                             onTextEdited: {
                                 suggestTimer.restart()
                             }
