@@ -1318,7 +1318,10 @@ Item {
             contentWidth: opsRow.width
             contentHeight: 48
             boundsBehavior: Flickable.StopAtBounds
-            ScrollBar.horizontal: PMScrollBar { policy: ScrollBar.AsNeeded }
+            /* 0.6.23：超宽时常显滚动条（AsNeeded 只在滚动/悬停时出现，用户以为没有） */
+            ScrollBar.horizontal: PMScrollBar {
+                policy: batchBar.contentWidth > batchBar.width ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff
+            }
 
             RowLayout {
                 id: opsRow
