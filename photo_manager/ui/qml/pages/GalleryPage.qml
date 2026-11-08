@@ -25,13 +25,32 @@ Item {
     /* 0.6.23：搜索标题里的语法关键字随界面语言显示
        （用户反馈 flag:pick 这类英文直接露出；仅影响标题展示，不影响实际搜索） */
     function _prettyQuery(q) {
+        /* 0.6.23：全部语法关键词随界面语言显示（用户反馈 color、ext 等仍露英文）。
+           完整匹配在前（值也翻译），前缀匹配在后（值保留原文，如日期区间）。
+           顺序敏感：text: 必须先于 ext:（后者是其子串），dates: 先于 date:。 */
         var s = String(q)
-        var map = [
+        var full = [
             ["flag:pick", I18n.tr("精选")], ["flag:reject", I18n.tr("排除")],
-            ["flag:none", I18n.tr("未设旗标")], ["flag:archive", I18n.tr("已作废")]
+            ["flag:none", I18n.tr("未设旗标")], ["flag:archive", I18n.tr("已作废")],
+            ["archived:yes", I18n.tr("已作废")], ["archived:no", I18n.tr("未作废")],
+            ["color:red", I18n.tr("红色色标")], ["color:yellow", I18n.tr("黄色色标")],
+            ["color:green", I18n.tr("绿色色标")], ["color:blue", I18n.tr("蓝色色标")],
+            ["color:purple", I18n.tr("紫色色标")], ["color:none", I18n.tr("无色标")],
+            ["rating:0", I18n.tr("未评级")]
         ]
-        for (var i = 0; i < map.length; ++i)
-            s = s.replace(new RegExp(map[i][0].replace(":", "\\:"), "g"), map[i][1])
+        for (var i = 0; i < full.length; ++i)
+            s = s.split(full[i][0]).join(full[i][1])
+        var pref = [
+            ["dates:", I18n.tr("日期")], ["date:", I18n.tr("日期")],
+            ["camera:", I18n.tr("相机")], ["person:", I18n.tr("人物")],
+            ["faces:", I18n.tr("人脸数")], ["rating:", I18n.tr("评级")],
+            ["text:", I18n.tr("文字")], ["ext:", I18n.tr("格式")],
+            ["color:", I18n.tr("色标")], ["gps:", I18n.tr("位置")],
+            ["clip:", I18n.tr("语义")], ["tag:", I18n.tr("标签")],
+            ["flag:", I18n.tr("旗标")]
+        ]
+        for (var j = 0; j < pref.length; ++j)
+            s = s.split(pref[j][0]).join(pref[j][1] + " ")
         return s
     }
 
@@ -507,6 +526,7 @@ Item {
     /* 0.6.23：批量操作统一入口——操作下拉菜单项与验收脚本共用
        （MenuItem 的 C++ triggered 信号无法从 PySide 合成发射） */
     function batchOp(kind) {
+        console.log("[ops] batchOp:", kind, "选中张数:", selectedIds.length)
         if (kind === "tag") batchTagRequested()
         else if (kind === "export") batchExportRequested()
         else if (kind === "moveout") batchMoveOutRequested()

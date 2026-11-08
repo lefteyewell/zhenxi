@@ -329,6 +329,27 @@ def main() -> int:
     except OSError:
         pass  # 日志目录不可写不阻塞启动（便携/只读目录兜底）
 
+    # 0.6.23：Qt/QML 消息（console.log/warning/error）路由到 app.log——
+    # 此前只进 stderr，打包版桌面启动即丢失，真机诊断弹窗/菜单链路无证据链。
+    try:
+        from PySide6.QtCore import qInstallMessageHandler, QtMsgType
+
+        _qt_lg = logging.getLogger("photo_manager.qml")
+        _lvl = {QtMsgType.QtDebugMsg: logging.DEBUG,
+                QtMsgType.QtInfoMsg: logging.INFO,
+                QtMsgType.QtWarningMsg: logging.WARNING,
+                QtMsgType.QtCriticalMsg: logging.ERROR,
+                QtMsgType.QtFatalMsg: logging.CRITICAL}
+
+        def _qt_message_handler(mode, ctx, message):
+            _qt_lg.log(_lvl.get(mode, logging.INFO), "%s:%s %s",
+                       getattr(ctx, "file", "") or "?",
+                       getattr(ctx, "line", 0), message)
+
+        qInstallMessageHandler(_qt_message_handler)
+    except Exception:
+        pass  # 消息桥接失败不阻塞启动
+
     # 0.6.10：递归深度余量（默认 1000 对 PySide 信号链 + 任务管线偏紧，
     # 麒麟实测 RecursionError"语义向量失败"；3 层倍增仅占约 1MB 线程栈）
     if sys.getrecursionlimit() < 3000:

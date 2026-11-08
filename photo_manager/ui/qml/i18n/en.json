@@ -1623,5 +1623,17 @@
   "等": " etc.",
   "· 缩略图丢失 {p1} · 分析失败 {p2}）": "· thumbnails missing {p1} · analysis failed {p2})",
   "· 跳过 {p1} 个（缺失或被占用）": "· skipped {p1} (missing or locked)",
-  "{p1}（未匹配照片": "{p1} (unmatched photos"
+  "{p1}（未匹配照片": "{p1} (unmatched photos",
+  "日期": "Date",
+  "语义": "Semantic",
+  "文字": "Text",
+  "未作废": "Not archived",
+  "红色色标": "Red label",
+  "黄色色标": "Yellow label",
+  "绿色色标": "Green label",
+  "蓝色色标": "Blue label",
+  "紫色色标": "Purple label",
+  "未评级": "Unrated",
+  "深": "Dark",
+  "浅": "Light"
 }

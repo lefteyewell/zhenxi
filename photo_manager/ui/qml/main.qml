@@ -956,11 +956,50 @@ ApplicationWindow {
                     font.pixelSize: 11
                 }
 
-                PMButton {
-                    text: Theme.dark ? I18n.tr("浅色") : I18n.tr("深色")
-                    tooltip: I18n.tr("切换浅色/深色主题")
-                    width: 48   /* 0.6.23：56→48（用户反馈再缩） */
+                /* 0.6.23：改为与「中/EN」语言按钮同款显示风格——
+                   深/浅双态文字，当前主题加粗高亮，自绘底框 */
+                Button {
+                    id: tbTheme
+                    objectName: "tbTheme"
+                    width: 64
+                    height: 32
+                    ToolTip.visible: hovered
+                    ToolTip.delay: 550
+                    ToolTip.text: I18n.tr("切换浅色/深色主题")
                     onClicked: ThemeController.toggleDark()
+                    contentItem: Row {
+                        spacing: 2
+                        anchors.centerIn: parent
+                        Text {
+                            text: I18n.tr("深")
+                            font.family: Theme.fontFamily
+                            font.pixelSize: 13
+                            font.bold: Theme.dark
+                            color: Theme.dark ? Theme.text : Theme.textDim
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+                        Text {
+                            text: "/"
+                            font.family: Theme.fontFamily
+                            font.pixelSize: 12
+                            color: Theme.textDim
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+                        Text {
+                            text: I18n.tr("浅")
+                            font.family: Theme.fontFamily
+                            font.pixelSize: 13
+                            font.bold: !Theme.dark
+                            color: !Theme.dark ? Theme.text : Theme.textDim
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+                    }
+                    background: Rectangle {
+                        radius: Theme.radiusSmall
+                        color: tbTheme.enabled ? (tbTheme.hovered ? Theme.hover : Theme.surface) : Theme.surfaceAlt
+                        border.width: 1
+                        border.color: Theme.divider
+                    }
                 }
 
                 /* 0.5.66：界面语言切换（多语言架构——语言包为数据文件，
@@ -1335,6 +1374,7 @@ ApplicationWindow {
                     onBatchExportRequested: Qt.callLater(exportDialog.open)
                     /* 0.6.23：操作下拉「作废（不删除）」→ 既有作废确认弹窗 */
                     onBatchArchiveRequested: {
+                        console.log("[archive] 信号到达, 选中张数 =", gallery.selectedIds.length)
                         archiveConfirm.pendingCount = gallery.selectedIds.length
                         Qt.callLater(archiveConfirm.open)
                     }
@@ -2374,6 +2414,7 @@ ApplicationWindow {
         closePolicy: Popup.CloseOnEscape
     /* 0.6.23：确认弹窗不允许点击外部关闭（防菜单打开瞬间被逸散点击经 CloseOnPressOutside 自关） */
         objectName: "archiveConfirm"
+        onOpened: console.log("[archive] 确认弹窗已打开, pendingCount =", pendingCount)
         modal: true
         width: 480
         x: (parent.width - width) / 2

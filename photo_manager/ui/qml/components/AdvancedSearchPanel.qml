@@ -41,6 +41,25 @@ Popup {
 
     signal searchRequested(string query)
 
+    /* 0.6.23：清空全部条件（清空按钮 + 每次打开面板共用） */
+    function resetFields() {
+        keywordField.text = ""
+        clipField.text = ""
+        dateFromPick.dateStr = ""
+        dateToPick.dateStr = ""
+        cameraField.text = ""
+        tagField.text = ""
+        personField.text = ""
+        gpsField.text = ""
+        facesField.text = ""
+        ratingField.text = ""
+        flagBox.currentIndex = 0
+        typeBox.currentIndex = 0
+        colorBox.currentIndex = 0
+    }
+    /* 0.6.23：每次打开面板自动清空上次条件（用户要求） */
+    onOpened: root.resetFields()
+
     /* 0.6.23：起止日期值（月历弹窗选择，格式恒为 yyyy-MM-DD；空串=不限） */
     QtObject { id: dateFromPick; property string dateStr: "" }
     QtObject { id: dateToPick; property string dateStr: "" }
@@ -440,21 +459,7 @@ Popup {
             PMButton {
                 text: I18n.tr("清空")
                 tooltip: I18n.tr("清空全部搜索条件")
-                onClicked: {
-                    keywordField.text = ""
-                    clipField.text = ""
-                    dateFromPick.dateStr = ""
-                    dateToPick.dateStr = ""
-                    cameraField.text = ""
-                    tagField.text = ""
-                    personField.text = ""
-                    gpsField.text = ""
-                    facesField.text = ""
-                    ratingField.text = ""
-                    flagBox.currentIndex = 0
-                    typeBox.currentIndex = 0
-                    colorBox.currentIndex = 0
-                }
+                onClicked: root.resetFields()
             }
         }
 
