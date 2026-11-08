@@ -5,24 +5,53 @@ EXIF / folders / arbitrary combinations), thumbnails and full-size viewing,
 batch export at common resolutions — **the app never deletes or modifies your original
 files**.
 
-## Latest release v0.6.19 (2026-11-05)
+## Latest release v0.6.24 (2026-11-08)
 
 > 📥 Download: [Releases page](https://github.com/lefteyewell/zhenxi/releases) ｜
 > 📋 All version changes: [CHANGELOG.md](CHANGELOG.md)
 
-- **Fixed**: People page showing "no data" on large person libraries (a
-  call-signature mismatch left over from the 0.6.17 avatar-cache rework made
-  the paged query fail silently)
-- **Improved**: dialogs & search on large person libraries — the "manage
-  avatars" dialog now does a single point lookup instead of building the full
-  person list; the "move out to person" dialog loads pages with a server-side
-  name search; all person search boxes debounce at 250 ms
-- **New**: a plain-text UPGRADE note ships inside every package (how to keep
-  your `data/` when upgrading over an existing install)
-- **Fixed**: the Kylin tarball is now packed inside Linux, so the executable
-  bit is preserved — it runs right after extraction, no manual chmod needed
-- **Fixed**: person "merge into" dialog search was not wired; merge pickers
-  now have search
+**Fixed** (verified on packaged builds)
+
+- **Toolbar "Actions" dropdown items did nothing when clicked** — an internal
+  reference was lost during the top-bar merge; tagging / export / move-out /
+  archive / copy-path all work again
+- **Pressing Enter in the search box opened the photo preview instead of
+  searching** when photos were selected (a global shortcut took precedence) —
+  Enter now performs the search while typing
+- **The advanced search panel kept the previous conditions when reopened** —
+  it now resets automatically on every open
+- **Search-result titles were translated in the wrong format** — back to the
+  original syntax format with only the category word translated
+  (e.g. `Color: red`)
+- **Toolbar texts stayed in the old language after switching 中/EN** — titles,
+  counters and the "last action" label now refresh immediately
+- **Move-out / folder-picker dialogs overflowed on small windows or large
+  system fonts** — dialogs are now height-adaptive with clipped content
+
+**Improved**
+
+- The dark/light toggle is now a pair of text buttons matching the `中 / EN`
+  button style
+- The theme (color scheme) selector is narrower — its text label was dropped
+
+<details>
+<summary>Previous release v0.6.23 (2026-11-07) summary</summary>
+
+- **Fixed**: syntax-based searches (flags, dates, etc.) returned very few
+  results — the query was re-read from the localized title; `flag:none` and
+  the like return full results again
+- **Fixed**: batch archive / move-out confirmation dialogs never appeared;
+  the archive confirmation had been broken since 0.5.39
+- **Fixed (Kylin)**: category pages squeezing the grid, tag multi-select bar
+  overlapping, duplicates-page thumbnails, badge overlap, checkmarks drawn as
+  radical signs, unreadable photo captions, emoji shown as boxes
+- **Fixed**: the 0.6.22 Windows package data-folder nesting issue
+- **Improved**: advanced search with calendar date pickers and Chinese flag
+  options; the gallery toolbar merged into one row; instant flag feedback;
+  face search & advanced search as standalone toolbar buttons; a full
+  translation audit (37 missing strings)
+
+</details>
 
 **English UI**: click the `中 / EN` button at the right end of the top toolbar.
 The interface language is remembered across restarts. Missing translations

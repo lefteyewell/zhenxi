@@ -1,7 +1,7 @@
 # 阶段0 - 下载并静默安装 Docker Desktop（WSL2 后端）
 # 需以管理员身份运行。
 $ErrorActionPreference = 'Continue'
-$log = 'D:\trae\software\photo management\logs\docker_setup.log'
+$log = Join-Path $PSScriptRoot '..\logs\docker_setup.log'
 New-Item -ItemType Directory -Force -Path (Split-Path $log) | Out-Null
 
 function Log($msg) {
