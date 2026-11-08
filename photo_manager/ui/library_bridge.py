@@ -866,6 +866,7 @@ class LibraryBridge(QObject):
         except Exception:
             conn.rollback()
             return False
+        self.message.emit(_tr("已重命名人物为「{p1}」").format(p1=name))
         return True
 
     @Slot(str, result=int)
@@ -878,6 +879,7 @@ class LibraryBridge(QObject):
                 "INSERT INTO persons(name, face_count) VALUES (?, 0)", (name,)
             )
             conn.commit()
+            self.message.emit(_tr("已新建人物"))
             return cur.lastrowid
         except Exception:
             conn.rollback()
@@ -904,6 +906,7 @@ class LibraryBridge(QObject):
             conn.execute("DELETE FROM person_dup_candidates WHERE a=? OR b=?",
                          (src_id, src_id))
             conn.commit()
+            self.message.emit(_tr("已合并人物"))
             return 1
         except Exception:
             conn.rollback()
@@ -929,6 +932,8 @@ class LibraryBridge(QObject):
                 pids)
             conn.execute(f"DELETE FROM persons WHERE id IN ({marks})", pids)
             conn.commit()
+            self.message.emit(
+                _tr("已删除 {p1} 个人物（人脸回到未指派，照片不受影响）").format(p1=len(pids)))
             return len(pids)
         except Exception:
             conn.rollback()
@@ -1231,6 +1236,7 @@ class LibraryBridge(QObject):
             "UPDATE person_dup_candidates SET ignored=1"
             " WHERE (a=? AND b=?) OR (a=? AND b=?)", (a, b, b, a))
         self.db.conn.commit()
+        self.message.emit(_tr("已忽略该重复候选"))
 
     @Slot(str, result=str)
     def readPackagedText(self, name: str) -> str:
@@ -1273,6 +1279,8 @@ class LibraryBridge(QObject):
                     "UPDATE persons SET face_count=(SELECT COUNT(*) FROM faces"
                     " WHERE person_id=?) WHERE id=?", (person_id, person_id))
             conn.commit()
+            self.message.emit(
+                _tr("已更新 {p1} 张照片的人脸归属").format(p1=len(ids)))
             return len(ids)
         except Exception:
             conn.rollback()
@@ -1341,6 +1349,7 @@ class LibraryBridge(QObject):
         )
         conn.commit()
         self.photosChanged.emit()
+        self.message.emit(_tr("已移除误检人脸"))
         return True
 
     @Slot(int, int, result=bool)
@@ -1357,6 +1366,8 @@ class LibraryBridge(QObject):
                     "UPDATE persons SET face_count=(SELECT COUNT(*) FROM faces"
                     " WHERE person_id=?) WHERE id=?", (person_id, person_id))
             conn.commit()
+            self.message.emit(
+                _tr("已指派人脸") if person_id > 0 else _tr("已移回未命名人物"))
             return True
         except Exception:
             conn.rollback()
@@ -1502,6 +1513,7 @@ class LibraryBridge(QObject):
                     if left == 0 and not has_name:
                         conn.execute("DELETE FROM persons WHERE id=?", (op,))
             conn.commit()
+            self.message.emit(_tr("已移动 {p1} 张人脸").format(p1=len(ids)))
             return len(ids)
         except Exception:
             conn.rollback()
@@ -1679,6 +1691,8 @@ class LibraryBridge(QObject):
                 "UPDATE persons SET face_count=(SELECT COUNT(*) FROM faces"
                 " WHERE person_id=?) WHERE id=?", (dst, dst))
             conn.commit()
+            self.message.emit(
+                _tr("已合并 {p1} 个人物").format(p1=len(srcs)))
             return len(srcs)
         except Exception:
             conn.rollback()
@@ -1856,12 +1870,18 @@ class LibraryBridge(QObject):
     @Slot(str, str, result=int)
     def renameTag(self, old_tag: str, new_tag: str) -> int:
         """标签重命名（目标已存在时自动去重合并）。"""
-        return self._rename_tag(old_tag, new_tag)
+        n = self._rename_tag(old_tag, new_tag)
+        if n:
+            self.message.emit(_tr("已重命名标签（{p1} 条记录）").format(p1=n))
+        return n
 
     @Slot(str, str, result=int)
     def mergeTags(self, src_tag: str, dst_tag: str) -> int:
         """标签合并：把 src 标签并入 dst（去重）。"""
-        return self._rename_tag(src_tag, dst_tag)
+        n = self._rename_tag(src_tag, dst_tag)
+        if n:
+            self.message.emit(_tr("已合并标签（{p1} 条记录）").format(p1=n))
+        return n
 
     @Slot(result="QVariant")
     def events(self) -> list[dict]:
@@ -2085,7 +2105,11 @@ class LibraryBridge(QObject):
         桌面无 file:// 目录处理关联时静默失败，用户点击无反应）。"""
         if not path:
             return False
-        return self._open_in_file_manager(self._resolve(path) or path)
+        ok = self._open_in_file_manager(self._resolve(path) or path)
+        if not ok:
+            # 0.6.24 补17：失败不再静默（此前"点了没反应"用户无法区分成败）
+            self.message.emit(_tr("无法打开目录：{p1}").format(p1=path))
+        return ok
 
     # Linux 常见文件管理器兜底链（麒麟 UKUI=peony；深度=dde-file-manager）
     _LINUX_FILE_MANAGERS = (
@@ -2138,6 +2162,7 @@ class LibraryBridge(QObject):
         if fp is not None:
             target = str(fp)
         if not os.path.exists(target):
+            self.message.emit(_tr("文件不存在，无法打开：{p1}").format(p1=path))
             return False
         import shutil
         import subprocess
@@ -2156,6 +2181,7 @@ class LibraryBridge(QObject):
                                  stdout=subprocess.DEVNULL,
                                  stderr=subprocess.DEVNULL)
         except Exception:
+            self.message.emit(_tr("无法打开文件：{p1}").format(p1=target))
             return False
         return True
 
@@ -3075,6 +3101,7 @@ class LibraryBridge(QObject):
             n += cur.rowcount
         conn.commit()
         if n:
+            self._finish(_tr("已把 {p1} 张照片重新排队分析").format(p1=n))
             self._start_auto_chain()
         return n
 
@@ -3126,6 +3153,8 @@ class LibraryBridge(QObject):
                 self.db.conn.execute("DELETE FROM ocr_fts WHERE rowid=?", (pid,))
                 n += 1
         self.db.conn.commit()
+        if n:
+            self.message.emit(_tr("已把 {p1} 条缺失记录移入待删除区").format(p1=n))
         return n
 
     @Slot("QVariant", result=int)
@@ -3157,6 +3186,8 @@ class LibraryBridge(QObject):
                 self.db.conn.execute("DELETE FROM ocr_fts WHERE rowid=?", (pid,))
             n += 1
         self.db.conn.commit()
+        if n:
+            self.message.emit(_tr("已恢复 {p1} 条记录").format(p1=n))
         return n
 
     @Slot("QVariant", result=int)
@@ -3188,6 +3219,9 @@ class LibraryBridge(QObject):
             self.db.conn.execute("DELETE FROM photos WHERE id=?", (pid,))
             n += 1
         self.db.conn.commit()
+        if n:
+            self._finish(
+                _tr("已彻底清除 {p1} 条残留记录（不触碰任何现存照片文件）").format(p1=n))
         return n
 
     @Slot(result=str)
@@ -3982,10 +4016,13 @@ class LibraryBridge(QObject):
 
         try:
             target = export_metadata_csv(self.db, out_path)
+            self.message.emit(_tr("元数据 CSV 已导出：{p1}").format(p1=target))
             return str(target)
         except Exception as e:
             log.exception("CSV 导出失败")
-            return _tr("CSV 导出失败：{p1}").format(p1=e)
+            msg = _tr("CSV 导出失败：{p1}").format(p1=e)
+            self.message.emit(msg)
+            return msg
 
     @Slot(str, result=str)
     def syncExport(self, out_path: str) -> str:
@@ -4051,6 +4088,7 @@ class LibraryBridge(QObject):
         self.db.conn.commit()
         # 不发 photosChanged：否则主界面 onPhotosChanged 会 showAll()+清空选择，
         # 导致给照片打标签时视图被重置。标签只是元数据，当前照片的展示由 InfoPanel 自行刷新。
+        self.message.emit(_tr("已添加标签「{p1}」").format(p1=tag))
         return True
 
     @Slot(int, str, result="bool")
@@ -4059,6 +4097,8 @@ class LibraryBridge(QObject):
             "DELETE FROM photo_tags WHERE photo_id=? AND tag=?", (photo_id, tag)
         )
         self.db.conn.commit()
+        if cur.rowcount > 0:
+            self.message.emit(_tr("已移除标签「{p1}」").format(p1=tag))
         return cur.rowcount > 0
 
     @Slot(int, result="QVariant")
@@ -4076,6 +4116,8 @@ class LibraryBridge(QObject):
         self.db.conn.execute(
             "UPDATE photos SET rating=? WHERE id=?", (rating, photo_id))
         self.db.conn.commit()
+        self.message.emit(
+            _tr("已评级 {p1} 星").format(p1=rating) if rating > 0 else _tr("已清除评级"))
         return True
 
     @Slot(int, str, result=bool)
@@ -4087,6 +4129,9 @@ class LibraryBridge(QObject):
         self.db.conn.execute(
             "UPDATE photos SET flag=? WHERE id=?", (flag, photo_id))
         self.db.conn.commit()
+        self.message.emit(
+            _tr("已标为精选") if flag == "pick"
+            else _tr("已标为排除") if flag == "reject" else _tr("已清除旗标"))
         return True
 
     @Slot("QVariant", str, result=int)
@@ -4111,6 +4156,10 @@ class LibraryBridge(QObject):
             f"UPDATE photos SET color_label = ? WHERE id IN ({q})",
             (color or None, *ids))
         self.db.conn.commit()
+        if cur.rowcount:
+            self.message.emit(
+                _tr("已为 {p1} 张照片设置色标").format(p1=cur.rowcount) if color
+                else _tr("已清除 {p1} 张照片的色标").format(p1=cur.rowcount))
         return cur.rowcount
 
     @Slot(int, bool, result=bool)
@@ -4120,6 +4169,10 @@ class LibraryBridge(QObject):
             "UPDATE photos SET archived = ? WHERE id = ?",
             (1 if archived else 0, photo_id))
         self.db.conn.commit()
+        if cur.rowcount > 0:
+            self.message.emit(
+                _tr("已归档（主时间轴不再显示，可恢复）") if archived
+                else _tr("已取消归档"))
         return cur.rowcount > 0
 
     @Slot("QVariant", bool, result=int)
@@ -4137,6 +4190,10 @@ class LibraryBridge(QObject):
             f"UPDATE photos SET archived = ? WHERE id IN ({q})",
             (1 if archived else 0, *ids))
         self.db.conn.commit()
+        if cur.rowcount:
+            self.message.emit(
+                _tr("已归档 {p1} 张照片").format(p1=cur.rowcount) if archived
+                else _tr("已取消归档 {p1} 张照片").format(p1=cur.rowcount))
         return cur.rowcount
 
     @Slot(int, int, result="QVariant")
@@ -4244,6 +4301,8 @@ class LibraryBridge(QObject):
                     (nts, nts, pid),
                 )
             conn.commit()
+            self.message.emit(
+                _tr("已平移 {p1} 张照片的拍摄时间").format(p1=len(rows)))
             return len(rows)
         except Exception:
             conn.rollback()
@@ -5150,6 +5209,9 @@ class LibraryBridge(QObject):
             n += 1
         self.db.conn.commit()
         self.photosChanged.emit()
+        if n:
+            self.message.emit(
+                _tr("已为 {p1} 张照片添加标签「{p2}」").format(p1=n, p2=tag))
         return n
 
     @Slot("QVariant", str, result=int)
@@ -5208,7 +5270,10 @@ class LibraryBridge(QObject):
         new_path = f"{dst_parent}/{name}" if dst_parent else name
         if new_path == src:
             return 0
-        return self._rename_tag(src, new_path)
+        n = self._rename_tag(src, new_path)
+        if n > 0:
+            self.message.emit(_tr("已移动标签（{p1} 条记录）").format(p1=n))
+        return n
 
     @Slot("QVariant", str, result=int)
     def moveTagsBatch(self, paths, dst_parent: str) -> int:
@@ -5218,6 +5283,8 @@ class LibraryBridge(QObject):
             r = self.moveTag(str(p), dst_parent)
             if r > 0:
                 total += r
+        if total:
+            self.message.emit(_tr("已批量移动标签（{p1} 条记录）").format(p1=total))
         return total
 
     # ---------- 场景识别词表（可配置） ----------
@@ -5429,7 +5496,10 @@ class LibraryBridge(QObject):
     def albumRename(self, album_id: int, name: str) -> bool:
         from photo_manager.core import albums as albums_mod
 
-        return albums_mod.rename_album(self.db, album_id, name)
+        ok = albums_mod.rename_album(self.db, album_id, name)
+        if ok:
+            self._finish(_tr("相册已重命名为「{p1}」").format(p1=name))
+        return ok
 
     @Slot(int, result=bool)
     def albumDelete(self, album_id: int) -> bool:
@@ -5462,7 +5532,10 @@ class LibraryBridge(QObject):
 
         if isinstance(ids, QJSValue):
             ids = ids.toVariant()
-        return albums_mod.remove_photos(self.db, album_id, ids)
+        n = albums_mod.remove_photos(self.db, album_id, ids)
+        if n > 0:
+            self._finish(_tr("已从相册移除 {p1} 张照片").format(p1=n))
+        return n
 
     @Slot(int, int, int, result="QVariant")
     def albumPhotos(self, album_id: int, offset: int = 0, limit: int = 500) -> list[dict]:
@@ -5789,6 +5862,8 @@ class LibraryBridge(QObject):
         conn.execute("UPDATE faces SET hidden=? WHERE id=?",
                      (1 if hidden else 0, face_id))
         conn.commit()
+        self.message.emit(
+            _tr("已隐藏该人脸标签") if hidden else _tr("已取消隐藏该人脸标签"))
         return True
 
     # ---------- 锁定只读（0.5.37-3，只改文件属性，不动任何数据） ----------

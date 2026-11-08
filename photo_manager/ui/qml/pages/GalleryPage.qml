@@ -27,8 +27,23 @@ Item {
     function _prettyQuery(q) {
         /* 0.6.23 补13b：按用户要求改为「仅翻译类别词，冒号与内容保留原样」——
            color:red → 色标:red、ext:cr3 → 格式:cr3、flag:none → 旗标:none。
-           顺序敏感：text: 先于 ext:（子串），dates: 先于 date:。 */
+           顺序敏感：text: 先于 ext:（子串），dates: 先于 date:。
+           0.6.24 补15：旗标/色标的枚举值也随界面语言显示（旗标:pick → 旗标:精选、
+           色标:blue → 色标:蓝；英文界面 Flag:pick / Color:blue 值本就是英文），
+           ext: 的值是文件格式（jpg/cr3 等），按用户要求保留原样不译。 */
         var s = String(q)
+        /* 枚举值先翻：值是固定枚举的类别才处理（在类别词替换之前，前缀仍是语法原样） */
+        var enums = [
+            ["flag",  ["pick", "精选"], ["reject", "排除"], ["none", "未设旗标"], ["archive", "已作废"]],
+            ["color", ["red", "红"], ["yellow", "黄"], ["green", "绿"],
+             ["blue", "蓝"], ["purple", "紫"], ["none", "未打色标"]]
+        ]
+        for (var e = 0; e < enums.length; ++e) {
+            var cat = enums[e][0]
+            for (var v = 1; v < enums[e].length; ++v)
+                s = s.split(cat + ":" + enums[e][v][0])
+                     .join(cat + ":" + I18n.tr(enums[e][v][1]))
+        }
         var kw = [
             ["dates:", I18n.tr("日期")], ["date:", I18n.tr("日期")],
             ["camera:", I18n.tr("相机")], ["person:", I18n.tr("人物")],

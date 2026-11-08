@@ -142,11 +142,11 @@ ApplicationWindow {
             }
             MenuItem {
                 objectName: "btnSyncOut"
-                text: I18n.tr("导出元数据到 XMP…")
+                text: I18n.tr("导出元数据包…")
                 hoverEnabled: true
                 ToolTip.visible: hovered
                 ToolTip.delay: 500
-                ToolTip.text: I18n.tr("把标签、评级等元数据写入照片的 XMP 边车文件（不改原图像素）")
+                ToolTip.text: I18n.tr("把标签、评级、人物等元数据打包导出，可用于换机迁移或导入其他库（不影响原图）")
                 onTriggered: syncOutPicker.openDialog()
             }
             MenuItem {
@@ -155,7 +155,7 @@ ApplicationWindow {
                 hoverEnabled: true
                 ToolTip.visible: hovered
                 ToolTip.delay: 500
-                ToolTip.text: I18n.tr("从 XMP 边车文件把标签、评级等元数据读回库")
+                ToolTip.text: I18n.tr("从元数据包把标签、评级等元数据读回库")
                 onTriggered: syncInPicker.openDialog()
             }
             MenuSeparator {}
@@ -1443,14 +1443,16 @@ ApplicationWindow {
                         renameDialog.context = "person"
                         renameDialog.personId = pid
                         renameDialog.initialValue = name
-                        renameDialog.open()
+                        /* 0.6.24 补18：右键菜单触发的弹窗延迟一拍打开，
+                           防菜单关闭级联逸散点击经 CloseOnPressOutside 自关 */
+                        Qt.callLater(renameDialog.open)
                     }
                     onMergeRequested: (pid, name) => {
                         mergePickerDialog.title = I18n.tr("合并人物")
                         mergePickerDialog.mode = "person"
                         mergePickerDialog.sourceId = pid
                         mergePickerDialog.hint = "「" + name + I18n.tr("」的照片将并入所选人物，源人物将被移除。")
-                        mergePickerDialog.open()
+                        Qt.callLater(mergePickerDialog.open)
                     }
                     onBatchMergeRequested: (ids) => {
                         var n = LibraryBridge.mergePeople(ids)
@@ -1509,14 +1511,15 @@ ApplicationWindow {
                         renameDialog.context = "tag"
                         renameDialog.personId = 0
                         renameDialog.initialValue = path
-                        renameDialog.open()
+                        /* 0.6.24 补18：同右键菜单防自关 */
+                        Qt.callLater(renameDialog.open)
                     }
                     onMergeRequested: (path) => {
                         mergePickerDialog.title = I18n.tr("合并标签")
                         mergePickerDialog.mode = "tag"
                         mergePickerDialog.sourceTag = path
                         mergePickerDialog.hint = "「" + path + I18n.tr("」将合并进所选标签，合并后该标签及其子孙消失。")
-                        mergePickerDialog.open()
+                        Qt.callLater(mergePickerDialog.open)
                     }
                     // 移动层级：paths 末位为指令——__pick__(弹窗选父) / __top__(移到顶层) / 具体父路径
                     onMoveRequested: (paths) => {
@@ -1646,14 +1649,14 @@ ApplicationWindow {
                         renameDialog.context = "album_new"
                         renameDialog.personId = 0
                         renameDialog.initialValue = ""
-                        renameDialog.open()
+                        Qt.callLater(renameDialog.open)
                     }
                     onRenameRequested: (albumId, name) => {
                         renameDialog.title = I18n.tr("重命名相册")
                         renameDialog.context = "album_rename"
                         renameDialog.personId = albumId
                         renameDialog.initialValue = name
-                        renameDialog.open()
+                        Qt.callLater(renameDialog.open)
                     }
                     onDeleteRequested: (albumId, name) => {
                         albumDeleteConfirm.albumId = albumId
@@ -1776,6 +1779,16 @@ ApplicationWindow {
                     color: Theme.textDim
                     elide: Text.ElideRight
                     Layout.maximumWidth: 420
+                    /* 0.6.24 补17：被截断的长消息悬停可看全文 */
+                    MouseArea {
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        enabled: statusText.truncated
+                        cursorShape: Qt.PointingHandCursor
+                        ToolTip.visible: enabled && containsMouse
+                        ToolTip.delay: 350
+                        ToolTip.text: statusText.text
+                    }
                 }
                 Text {
                     id: selCountText
@@ -2818,7 +2831,7 @@ ApplicationWindow {
         }
         MenuItem {
             objectName: "ctxFindSimilar"
-            text: I18n.tr("查找相似照片")
+            text: I18n.tr("查找语义相似照片")
             onTriggered: {
                 var i = gallery.firstSelectedIndex()
                 if (i >= 0)
@@ -2866,7 +2879,10 @@ ApplicationWindow {
                     renameDialog.context = "album_new"
                     renameDialog.personId = 0
                     renameDialog.initialValue = ""
-                    renameDialog.open()
+                    /* 0.6.24 补18：右键子菜单触发的弹窗必须延迟一拍——
+                       菜单关闭级联的逸散点击会经 CloseOnPressOutside 把弹窗瞬间自关，
+                       表现为「新建无效」（0.6.23 补8 同款，本弹窗此前漏修） */
+                    Qt.callLater(renameDialog.open)
                 }
             }
         }

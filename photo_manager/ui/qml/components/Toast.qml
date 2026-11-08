@@ -19,7 +19,11 @@ import QtQuick
 import theme 1.0
 
 /* 轻提示：底部居中浮层，短暂显示后自动淡出。
-   用法：Toast { id: toastLayer }，show(text, kind) kind ∈ success / warning / error。 */
+   用法：Toast { id: toastLayer }，show(text, kind) kind ∈ success / warning / error。
+   0.6.24 补17（用户反馈：文字多时显示不全、固定 3.2s 看不完）：
+   ① 时长随文字长度伸缩（3s 起步、每字 75ms、上限 12s）；
+   ② 长文字自动折行（最多 4 行），高度自适应，不再截断；
+   ③ 鼠标悬停暂停倒计时，移开继续；点击立即关闭。 */
 Rectangle {
     id: root
     objectName: "toastLayer"
@@ -28,7 +32,8 @@ Rectangle {
     anchors.bottom: parent.bottom
     anchors.bottomMargin: 52
     width: Math.min(560, parent.width - 48)
-    height: 40
+    height: msgText.lineCount > 1
+            ? Math.min(40 + (msgText.lineCount - 1) * 19, 96) : 40
     radius: 20
     visible: false
     opacity: 0
@@ -42,6 +47,8 @@ Rectangle {
         else if (root._kind === "warning") root.color = Theme.warning
         else root.color = Theme.success
         msgText.text = text || ""
+        /* 时长随文字长度伸缩：短提示 3s，长提示给足阅读时间 */
+        hideTimer.interval = Math.min(12000, 3000 + (text || "").length * 75)
         root.visible = true
         animIn.restart()
         hideTimer.restart()
@@ -49,15 +56,39 @@ Rectangle {
 
     Text {
         id: msgText
-        anchors.fill: parent
+        anchors.left: parent.left
+        anchors.right: parent.right
         anchors.leftMargin: 20
         anchors.rightMargin: 20
+        anchors.verticalCenter: parent.verticalCenter
         verticalAlignment: Text.AlignVCenter
         horizontalAlignment: Text.AlignHCenter
+        wrapMode: Text.WordWrap
+        maximumLineCount: 4
         elide: Text.ElideRight
         font.family: Theme.fontFamily
         font.pixelSize: 13
         color: "white"
+    }
+
+    /* 悬停暂停倒计时（看得慢可以慢慢看）；点击立即关闭 */
+    MouseArea {
+        id: toastHover
+        anchors.fill: parent
+        hoverEnabled: true
+        cursorShape: Qt.PointingHandCursor
+        onContainsMouseChanged: {
+            if (!root.visible)
+                return
+            if (containsMouse)
+                hideTimer.stop()
+            else
+                hideTimer.restart()
+        }
+        onClicked: {
+            hideTimer.stop()
+            animOut.start()
+        }
     }
 
     NumberAnimation {

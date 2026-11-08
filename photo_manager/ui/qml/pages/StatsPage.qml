@@ -137,6 +137,9 @@ Item {
                                 RowLayout {
                                     anchors.fill: parent
                                     anchors.leftMargin: Theme.spacingSmall
+                                    /* 0.6.24 补20：右侧避让 12px 覆盖式滚动条+2px 间隙，
+                                       数字列不再被滚动条遮挡 */
+                                    anchors.rightMargin: 14
                                     Text {
                                         Layout.fillWidth: true
                                         text: model.key
@@ -195,6 +198,9 @@ Item {
                                 RowLayout {
                                     anchors.fill: parent
                                     anchors.leftMargin: Theme.spacingSmall
+                                    /* 0.6.24 补20：右侧避让 12px 覆盖式滚动条+2px 间隙，
+                                       数字列不再被滚动条遮挡 */
+                                    anchors.rightMargin: 14
                                     Text {
                                         Layout.fillWidth: true
                                         text: model.key
@@ -253,6 +259,9 @@ Item {
                                 RowLayout {
                                     anchors.fill: parent
                                     anchors.leftMargin: Theme.spacingSmall
+                                    /* 0.6.24 补20：右侧避让 12px 覆盖式滚动条+2px 间隙，
+                                       数字列不再被滚动条遮挡 */
+                                    anchors.rightMargin: 14
                                     Text {
                                         Layout.fillWidth: true
                                         text: model.key
@@ -311,6 +320,9 @@ Item {
                                 RowLayout {
                                     anchors.fill: parent
                                     anchors.leftMargin: Theme.spacingSmall
+                                    /* 0.6.24 补20：右侧避让 12px 覆盖式滚动条+2px 间隙，
+                                       数字列不再被滚动条遮挡 */
+                                    anchors.rightMargin: 14
                                     Text {
                                         Layout.fillWidth: true
                                         text: model.key
@@ -367,6 +379,9 @@ Item {
                                 RowLayout {
                                     anchors.fill: parent
                                     anchors.leftMargin: Theme.spacingSmall
+                                    /* 0.6.24 补20：右侧避让 12px 覆盖式滚动条+2px 间隙，
+                                       数字列不再被滚动条遮挡 */
+                                    anchors.rightMargin: 14
                                     Text {
                                         Layout.fillWidth: true
                                         text: "★".repeat(parseInt(model.key)) + " " + model.key + I18n.tr(" 星")
