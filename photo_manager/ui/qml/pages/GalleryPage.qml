@@ -25,32 +25,21 @@ Item {
     /* 0.6.23：搜索标题里的语法关键字随界面语言显示
        （用户反馈 flag:pick 这类英文直接露出；仅影响标题展示，不影响实际搜索） */
     function _prettyQuery(q) {
-        /* 0.6.23：全部语法关键词随界面语言显示（用户反馈 color、ext 等仍露英文）。
-           完整匹配在前（值也翻译），前缀匹配在后（值保留原文，如日期区间）。
-           顺序敏感：text: 必须先于 ext:（后者是其子串），dates: 先于 date:。 */
+        /* 0.6.23 补13b：按用户要求改为「仅翻译类别词，冒号与内容保留原样」——
+           color:red → 色标:red、ext:cr3 → 格式:cr3、flag:none → 旗标:none。
+           顺序敏感：text: 先于 ext:（子串），dates: 先于 date:。 */
         var s = String(q)
-        var full = [
-            ["flag:pick", I18n.tr("精选")], ["flag:reject", I18n.tr("排除")],
-            ["flag:none", I18n.tr("未设旗标")], ["flag:archive", I18n.tr("已作废")],
-            ["archived:yes", I18n.tr("已作废")], ["archived:no", I18n.tr("未作废")],
-            ["color:red", I18n.tr("红色色标")], ["color:yellow", I18n.tr("黄色色标")],
-            ["color:green", I18n.tr("绿色色标")], ["color:blue", I18n.tr("蓝色色标")],
-            ["color:purple", I18n.tr("紫色色标")], ["color:none", I18n.tr("无色标")],
-            ["rating:0", I18n.tr("未评级")]
-        ]
-        for (var i = 0; i < full.length; ++i)
-            s = s.split(full[i][0]).join(full[i][1])
-        var pref = [
+        var kw = [
             ["dates:", I18n.tr("日期")], ["date:", I18n.tr("日期")],
             ["camera:", I18n.tr("相机")], ["person:", I18n.tr("人物")],
             ["faces:", I18n.tr("人脸数")], ["rating:", I18n.tr("评级")],
             ["text:", I18n.tr("文字")], ["ext:", I18n.tr("格式")],
             ["color:", I18n.tr("色标")], ["gps:", I18n.tr("位置")],
             ["clip:", I18n.tr("语义")], ["tag:", I18n.tr("标签")],
-            ["flag:", I18n.tr("旗标")]
+            ["flag:", I18n.tr("旗标")], ["archived:", I18n.tr("作废")]
         ]
-        for (var j = 0; j < pref.length; ++j)
-            s = s.split(pref[j][0]).join(pref[j][1] + " ")
+        for (var i = 0; i < kw.length; ++i)
+            s = s.split(kw[i][0]).join(I18n.tr(kw[i][1]) + ":")
         return s
     }
 
@@ -1499,6 +1488,7 @@ Item {
             /* 操作下拉：打标签/导出/移出/复制路径（原批量操作条合并）。
                未选择时显示「操作」，选择后显示最近一次所选操作。 */
             PMButton {
+                id: opsBtn   /* 0.6.23 补13b：合并时 id 丢失致 6 个菜单项全部 ReferenceError（app.log 实锤） */
                 objectName: "opsBtn"
                 property string lastOp: ""
                 text: (lastOp !== "" ? lastOp : I18n.tr("操作")) + " ▾"
