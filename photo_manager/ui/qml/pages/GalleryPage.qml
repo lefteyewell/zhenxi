@@ -290,6 +290,15 @@ Item {
         }
         _loaded += arr.length
         _busy = false
+        root._refreshCountLabel()
+    }
+
+    /* 0.6.23 补14：张数标签集中刷新（语言切换后重渲染用） */
+    function _refreshCountLabel() {
+        if (_mode === "facesearch" && faceGroupMode) {
+            countText.text = _loaded + I18n.tr(" 张\n按人物分组（组内按相似度）")
+            return
+        }
         var label = _mode === "all" && totalCount > 0
                     ? _loaded + " / " + totalCount + I18n.tr(" 张")
                     : _loaded + I18n.tr(" 张")
@@ -297,6 +306,13 @@ Item {
         /* 0.6.23：张数与提示分两行（用户反馈节约横向空间） */
         if (more) label += "\n" + I18n.tr("滚动加载更多")
         countText.text = label
+    }
+
+    /* 0.6.23 补14：语言切换后重渲染命令式设置的文案（标题/张数） */
+    Connections {
+        target: I18n
+        function onLangChanged() { root._applyTitle(); root._refreshCountLabel() }
+        function onCatalogChanged() { root._applyTitle(); root._refreshCountLabel() }
     }
 
     function _fetchMore() {
@@ -514,6 +530,16 @@ Item {
 
     /* 0.6.23：批量操作统一入口——操作下拉菜单项与验收脚本共用
        （MenuItem 的 C++ triggered 信号无法从 PySide 合成发射） */
+    function _opLabel(kind) {
+        if (kind === "tag") return I18n.tr("打标签…")
+        if (kind === "export") return I18n.tr("导出…")
+        if (kind === "moveout") return I18n.tr("移出…")
+        if (kind === "personmove") return I18n.tr("移出人物…")
+        if (kind === "archive") return I18n.tr("作废")
+        if (kind === "copy") return I18n.tr("复制路径")
+        return I18n.tr("操作")
+    }
+
     function batchOp(kind) {
         console.log("[ops] batchOp:", kind, "选中张数:", selectedIds.length)
         if (kind === "tag") batchTagRequested()
@@ -1490,8 +1516,8 @@ Item {
             PMButton {
                 id: opsBtn   /* 0.6.23 补13b：合并时 id 丢失致 6 个菜单项全部 ReferenceError（app.log 实锤） */
                 objectName: "opsBtn"
-                property string lastOp: ""
-                text: (lastOp !== "" ? lastOp : I18n.tr("操作")) + " ▾"
+                property string lastOpKind: ""   /* 0.6.23 补14：存操作种类，显示时翻译（切语言后跟随） */
+                text: (lastOpKind !== "" ? root._opLabel(lastOpKind) : I18n.tr("操作")) + " ▾"
                 Layout.preferredWidth: 96
                 height: 30
                 tooltip: I18n.tr("对所选照片批量操作：打标签 / 导出 / 移出 / 复制路径")
@@ -1505,7 +1531,7 @@ Item {
                         objectName: "batchTagBtn"
                         text: I18n.tr("打标签…")
                         onTriggered: {
-                            opsBtn.lastOp = I18n.tr("打标签…")
+                            opsBtn.lastOpKind = "tag"
                             root.batchOp("tag")
                         }
                     }
@@ -1513,7 +1539,7 @@ Item {
                         objectName: "batchExportBtn"
                         text: I18n.tr("导出…")
                         onTriggered: {
-                            opsBtn.lastOp = I18n.tr("导出…")
+                            opsBtn.lastOpKind = "export"
                             root.batchOp("export")
                         }
                     }
@@ -1521,7 +1547,7 @@ Item {
                         objectName: "batchMoveOutBtn"
                         text: I18n.tr("移出…")
                         onTriggered: {
-                            opsBtn.lastOp = I18n.tr("移出…")
+                            opsBtn.lastOpKind = "moveout"
                             root.batchOp("moveout")
                         }
                     }
@@ -1530,7 +1556,7 @@ Item {
                         text: I18n.tr("移出人物…")
                         visible: root._mode === "person"
                         onTriggered: {
-                            opsBtn.lastOp = I18n.tr("移出人物…")
+                            opsBtn.lastOpKind = "personmove"
                             root.batchOp("personmove")
                         }
                     }
@@ -1539,7 +1565,7 @@ Item {
                         objectName: "batchArchiveBtn"
                         text: I18n.tr("作废（不删除）")
                         onTriggered: {
-                            opsBtn.lastOp = I18n.tr("作废")
+                            opsBtn.lastOpKind = "archive"
                             root.batchOp("archive")
                         }
                     }
@@ -1547,7 +1573,7 @@ Item {
                         objectName: "batchCopyBtn"
                         text: I18n.tr("复制路径")
                         onTriggered: {
-                            opsBtn.lastOp = I18n.tr("复制路径")
+                            opsBtn.lastOpKind = "copy"
                             root.batchOp("copy")
                         }
                     }

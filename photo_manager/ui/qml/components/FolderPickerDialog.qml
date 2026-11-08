@@ -33,7 +33,8 @@ Popup {
     x: Math.round((parent.width - width) / 2)
     y: Math.round((parent.height - height) / 2)
     width: 560
-    height: 500
+    /* 0.6.23 补14：高度自适应窗口（用户真机字体度量下最小高度总和曾超 500 致内容溢出弹窗） */
+    height: parent ? Math.min(500, Math.max(320, parent.height - 48)) : 500
     padding: 0
 
     property string dialogTitle: I18n.tr("选择文件夹")
@@ -132,10 +133,12 @@ Popup {
         width: root.availableWidth
         height: root.availableHeight
         spacing: 0
+        clip: true   /* 0.6.23 补14：溢出内容不再画出弹窗外框 */
 
         RowLayout {
             Layout.fillWidth: true
             Layout.preferredHeight: 52
+            Layout.minimumHeight: 0   /* 0.6.23 补14：允许收缩，防真机字体度量撑爆弹窗 */
             Layout.leftMargin: Theme.spacingLarge
             Layout.rightMargin: Theme.spacingMedium
             spacing: Theme.spacingSmall
@@ -143,9 +146,11 @@ Popup {
             PopupDragHandle { target: root; Layout.fillWidth: true; Layout.preferredHeight: 52 }
 
             Text {
+                Layout.maximumWidth: 300
+                elide: Text.ElideRight
                 text: root.dialogTitle
                 font.family: Theme.fontFamily
-                font.pixelSize: 18
+                font.pixelSize: 16
                 font.weight: Font.DemiBold
                 color: Theme.text
             }
@@ -249,6 +254,7 @@ Popup {
         Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
+            Layout.minimumHeight: 120   /* 0.6.23 补14：列表保底可见高度 */
             Layout.leftMargin: Theme.spacingMedium
             Layout.rightMargin: Theme.spacingMedium
             radius: Theme.radiusMedium

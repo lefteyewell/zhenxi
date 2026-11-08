@@ -939,21 +939,29 @@ ApplicationWindow {
                     onClicked: faceSearchPicker.openDialog()
                 }
 
-                Text {
-                    text: I18n.tr("配色")
-                    font.family: Theme.fontFamily
-                    font.pixelSize: 12
-                    color: Theme.textDim
-                }
-
+                /* 0.6.23 补14：配色栏缩宽——去掉「配色」文字标签（方案名自解释，
+                   悬停有提示），仅保留下拉框；方案名随界面语言显示 */
                 ComboBox {
                     id: schemeBox
+                    objectName: "schemeBox"
                     model: ThemeController ? ThemeController.schemeNames : []
                     currentIndex: ThemeController ? ThemeController.schemeIndex : 0
                     onActivated: ThemeController.setScheme(currentIndex)
-                    width: 66   /* 0.6.23：72→66+字号11（用户反馈仍太宽） */
+                    width: 72
                     height: 32
                     font.pixelSize: 11
+                    ToolTip.visible: hovered
+                    ToolTip.delay: 550
+                    ToolTip.text: I18n.tr("配色方案（影响缩略图与面板色调）")
+                    displayText: I18n.tr(ThemeController.schemeNames[currentIndex] || "")
+                    delegate: ItemDelegate {
+                        required property var modelData
+                        required property int index
+                        text: I18n.tr(modelData)
+                        width: parent.width
+                        font.pixelSize: 11
+                        highlighted: schemeBox.highlightedIndex === index
+                    }
                 }
 
                 /* 0.6.23：改为与「中/EN」语言按钮同款显示风格——

@@ -1635,5 +1635,7 @@
   "紫色色标": "Purple label",
   "未评级": "Unrated",
   "深": "Dark",
-  "浅": "Light"
+  "浅": "Light",
+  "配色方案（影响缩略图与面板色调）": "Color scheme (affects thumbnail & panel tones)",
+  "配置": "Scheme"
 }
