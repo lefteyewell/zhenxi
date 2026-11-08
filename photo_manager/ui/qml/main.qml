@@ -3016,16 +3016,27 @@ ApplicationWindow {
     }
 
     /* 键盘快捷键 */
+    /* 0.6.23 补14b：当前焦点在文本输入框（搜索框/重命名等）内时，
+       Return/Space/Ctrl+A 等图库快捷键必须让位——QShortcut 优先于焦点控件
+       的按键处理，否则搜索框回车会打开预览、打字输空格会开大图、
+       搜索框内 Ctrl+A 会全选照片 */
+    function _typingFocus() {
+        var fi = window.activeFocusItem
+        return fi && typeof fi.text === "string" && typeof fi.cursorPosition === "number"
+    }
+
     Shortcut {
         id: scCtrlF
         objectName: "scCtrlF"
         sequence: "Ctrl+F"
+        enabled: !window._typingFocus()
         onActivated: searchField.forceActiveFocus()
     }
     Shortcut {
         id: scCtrlA
         objectName: "scCtrlA"
         sequence: "Ctrl+A"
+        enabled: !window._typingFocus()
         onActivated: gallery.selectAllLoaded()
     }
     /* 0.5.35：常见快捷操作（Lightroom/ACDSee 习惯） */
@@ -3042,6 +3053,7 @@ ApplicationWindow {
         sequence: "Space"
         /* 有选中且在图库页时接管空格开大图；无选择时空格仍用于网格滚动 */
         enabled: !popupGate.isOpen() && gallery.visible && gallery.selectedIds.length > 0
+                 && !window._typingFocus()
         onActivated: {
             var ids = gallery.selectedIds.slice()
             photoViewer.setContext(ids, 0)
@@ -3053,6 +3065,7 @@ ApplicationWindow {
         objectName: "scReturn"
         sequence: "Return"
         enabled: !popupGate.isOpen() && gallery.visible && gallery.selectedIds.length > 0
+                 && !window._typingFocus()
         onActivated: {
             var ids = gallery.selectedIds.slice()
             photoViewer.setContext(ids, 0)
