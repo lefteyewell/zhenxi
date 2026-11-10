@@ -268,8 +268,15 @@ Item {
                model.selected 会是 undefined（选中态绑定不可靠）。
                0.6.20：reloadCurrent 保留选择——重建网格时按 selectedIds
                恢复勾选（含后续分页补进的格子），弹窗/菜单操作后
-               选中态不再凭空消失（麒麟真机反馈）。 */
-            arr[i].selected = root.selectedIds.indexOf(arr[i].id) >= 0
+               选中态不再凭空消失（麒麟真机反馈）。
+               0.6.25 补22：PySide6 6.8（麒麟包）上对 QVariantMap 行对象的
+               JS 属性赋值（arr[i].selected=…）会**静默失败**——selected
+               角色缺失 → 委托绑定到 undefined → Qt 6.8 bool 赋值失败回落
+               visible=true（勾徽标卡死）且绑定死亡（点选无任何视觉响应，
+               麒麟用户 app.log 实锤 999/1010/1014 三处报错）。改为
+               append 后用模型 C++ setProperty 强制写入角色（全版本可靠）。 */
+            var sel = root.selectedIds.indexOf(arr[i].id) >= 0
+            arr[i].selected = sel
             /* 0.5.64 分组模式改为分段列表存储：每组一个 ListModel，
                组头行高 32px（原 GridView 独占整行方案组头行高=格子边长，
                上下大片空白——用户反馈「空白位置太多」后重构）。
@@ -297,9 +304,12 @@ Item {
                     gi = _groupStore.length - 1
                 }
                 _groupStore[gi].model.append(arr[i])
+                _groupStore[gi].model.setProperty(
+                    _groupStore[gi].model.count - 1, "selected", sel)
                 _curGroupCount += 1
             } else {
                 gridModel.append(arr[i])
+                gridModel.setProperty(gridModel.count - 1, "selected", sel)
                 gridIds.push(arr[i].id)
             }
         }
@@ -996,7 +1006,12 @@ Item {
                         anchors.fill: parent
                         color: Theme.primary
                         opacity: 0.14
-                        visible: model.selected
+                        /* 0.6.25 补21：=== true 严格比较——selected 若短暂为
+                           undefined，直接绑定 bool 会在 Qt 6.8（麒麟包）上赋值
+                           失败并回落 visible=true（徽标卡死），且绑定死亡后
+                           点击 setProperty 不再有任何视觉响应（麒麟用户实测）；
+                           严格比较恒返回 bool，绑定始终存活。 */
+                        visible: model.selected === true
                     }
                     /* 白色内圈：在深色照片上也看得清边框 */
                     Rectangle {
@@ -1007,11 +1022,11 @@ Item {
                         border.width: 1
                         border.color: "#FFFFFF"
                         opacity: 0.9
-                        visible: model.selected
+                        visible: model.selected === true
                     }
                     /* 左上角勾选徽标（0.6.23：√ 根号改 Canvas 手绘对勾） */
                     Rectangle {
-                        visible: model.selected
+                        visible: model.selected === true
                         anchors.top: parent.top
                         anchors.left: parent.left
                         anchors.margins: 5

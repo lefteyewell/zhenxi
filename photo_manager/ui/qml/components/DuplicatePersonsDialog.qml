@@ -45,10 +45,14 @@ Dialog {
     }
 
     /* 0.6.21 假死修复：候选构建移到后台线程，本方法只发请求；
-       数据经 onDupCandidatesReady 信号回填（同步版在大库上会卡 UI 数秒） */
+       数据经 onDupCandidatesReady 信号回填（同步版在大库上会卡 UI 数秒）
+       0.6.25 补24：anchorPid>0 时只加载与锚点人物相关的候选对
+       （人物页「查找疑似重复」锚点扫后只看这一人的结果） */
+    property int anchorPid: 0
+
     function reload() {
         loading = true
-        LibraryBridge.dupCandidatesAsync()
+        LibraryBridge.dupCandidatesAsync(root.anchorPid || 0)
     }
 
     function _status() { return LibraryBridge.dupScanStatus() }
@@ -131,6 +135,27 @@ Dialog {
                 color: Theme.textDim
                 elide: Text.ElideRight
             }
+            /* 0.6.25 补24：锚点过滤提示与解除 */
+            Text {
+                visible: root.anchorPid > 0
+                Layout.alignment: Qt.AlignVCenter
+                text: I18n.tr("仅看人物 #") + root.anchorPid
+                font.family: Theme.fontFamily
+                font.pixelSize: 12
+                font.weight: Font.DemiBold
+                color: Theme.primary
+            }
+            PMButton {
+                visible: root.anchorPid > 0
+                text: I18n.tr("显示全部")
+                height: 28
+                enabled: !root.scanBusy
+                tooltip: I18n.tr("解除按人物过滤，显示全部候选对")
+                onClicked: {
+                    root.anchorPid = 0
+                    root.reload()
+                }
+            }
             PMButton {
                 objectName: "dupRescanBtn"
                 text: I18n.tr("全库扫描")
@@ -139,6 +164,7 @@ Dialog {
                 Layout.alignment: Qt.AlignVCenter
                 tooltip: I18n.tr("对照片数前 1500 的未命名人物做全对全扫描（推荐先用人物页的「查找疑似重复」按人查）")
                 onClicked: {
+                    root.anchorPid = 0
                     root.scanBusy = true
                     countText.text = I18n.tr("扫描中…")
                     LibraryBridge.dupScanStart()
@@ -300,6 +326,10 @@ Dialog {
                             onClicked: {
                                 var n = LibraryBridge.mergePersons(model.a, model.b)
                                 if (n > 0) {
+                                    /* 补24：锚点人物被并入对方（已删除）时
+                                       解除过滤，展示剩余候选 */
+                                    if (root.anchorPid === model.a)
+                                        root.anchorPid = 0
                                     root.messageRequested(
                                         I18n.tr("已合并：") + model.aName + " → " + model.bName, "success")
                                     root.reload()

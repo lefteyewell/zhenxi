@@ -244,7 +244,6 @@ Dialog {
             spacing: Theme.spacingSmall
 
             Text {
-                anchors.verticalCenter: parent.verticalCenter
                 text: I18n.tr("模糊阈值")
                 font.family: Theme.fontFamily
                 font.pixelSize: 12
@@ -252,7 +251,6 @@ Dialog {
             }
             Slider {
                 id: thresholdSlider
-                anchors.verticalCenter: parent.verticalCenter
                 Layout.preferredWidth: 240
                 from: 0
                 to: 100
@@ -264,14 +262,12 @@ Dialog {
                 }
             }
             Text {
-                anchors.verticalCenter: parent.verticalCenter
                 text: Math.round(root.threshold) + I18n.tr("（越大越严）")
                 font.family: Theme.fontFamily
                 font.pixelSize: 12
                 color: Theme.text
             }
             Text {
-                anchors.verticalCenter: parent.verticalCenter
                 Layout.fillWidth: true
                 text: I18n.tr("隐藏=列表不再显示（可逆）· 删除标签=仅移除人脸记录，照片绝不受影响")
                 font.family: Theme.fontFamily

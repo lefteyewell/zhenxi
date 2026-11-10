@@ -292,7 +292,8 @@ Window {
             Row {
                 spacing: 8
                 layoutDirection: Qt.RightToLeft
-                anchors.right: parent.right
+                /* 0.6.25 补23：同 ColumnLayout 子项禁用 anchors */
+                Layout.alignment: Qt.AlignRight
                 PMButton {
                     text: I18n.tr("取消")
                     height: 30

@@ -1462,8 +1462,10 @@ ApplicationWindow {
                         peoplePage.updateBatchBar()
                     }
                     onDupRequested: dupPersonsDialog.openDialog()
-                    /* 0.6.21 锚点扫描：先扫选中人物（后台），再开弹窗看结果 */
+                    /* 0.6.21 锚点扫描：先扫选中人物（后台），再开弹窗看结果
+                       0.6.25 补24：弹窗按锚点过滤，只显示与此人的候选对 */
                     onDupForRequested: (pid) => {
+                        dupPersonsDialog.anchorPid = pid
                         LibraryBridge.dupScanFor(pid)
                         dupPersonsDialog.openDialog()
                     }
@@ -2254,7 +2256,9 @@ ApplicationWindow {
             Row {
                 spacing: Theme.spacingSmall
                 layoutDirection: Qt.RightToLeft
-                anchors.right: parent.right
+                /* 0.6.25 补23：ColumnLayout 子项禁用 anchors（QML Row 布局
+                   管理下 undefined behavior 告警），改用 Layout.alignment */
+                Layout.alignment: Qt.AlignRight
                 PMButton {
                     text: I18n.tr("取消")
                     height: 30
@@ -2477,7 +2481,9 @@ ApplicationWindow {
             Row {
                 spacing: Theme.spacingSmall
                 layoutDirection: Qt.RightToLeft
-                anchors.right: parent.right
+                /* 0.6.25 补23：ColumnLayout 子项禁用 anchors（QML Row 布局
+                   管理下 undefined behavior 告警），改用 Layout.alignment */
+                Layout.alignment: Qt.AlignRight
                 PMButton {
                     text: I18n.tr("取消")
                     height: 30
@@ -2612,7 +2618,9 @@ ApplicationWindow {
             Row {
                 spacing: Theme.spacingSmall
                 layoutDirection: Qt.RightToLeft
-                anchors.right: parent.right
+                /* 0.6.25 补23：ColumnLayout 子项禁用 anchors（QML Row 布局
+                   管理下 undefined behavior 告警），改用 Layout.alignment */
+                Layout.alignment: Qt.AlignRight
                 PMButton {
                     text: I18n.tr("关闭")
                     height: 30

@@ -1022,6 +1022,9 @@ class LibraryBridge(QObject):
                 ignored.add((int(b), int(a)))
             cand: list[tuple[float, int, int]] = []
             batch: list[tuple[int, "object"]] = []
+            total = len(rows)
+            # 0.6.25 补24：扫描进度上报到任务栏（此前无进度，用户误以为假死）
+            self.taskProgress.emit(0, max(total, 1), "疑似重复人物扫描")
 
             def flush() -> None:
                 if not batch:
@@ -1037,13 +1040,18 @@ class LibraryBridge(QObject):
                                      max(anchor_pid, pid)))
                 batch.clear()
 
+            done = 0
             for pid, blob in rows:
                 pid = int(pid)
                 if pid == anchor_pid or blob is None or len(blob) != dim * 4:
                     continue
                 batch.append((pid, np.frombuffer(blob, dtype=np.float32)))
+                done += 1
                 if len(batch) >= 4096:
+                    self.taskProgress.emit(min(done, total), total,
+                                           "疑似重复人物扫描")
                     flush()
+            self.taskProgress.emit(total, total, "疑似重复人物扫描")
             flush()
             cand.sort(reverse=True)
             cand = cand[: self.DUP_MAX_OUT]
@@ -1122,6 +1130,9 @@ class LibraryBridge(QObject):
                 return 0
             m = np.stack([desc[p] for p in pids])
             m = m / np.linalg.norm(m, axis=1, keepdims=True)
+            # 0.6.25 补24：全库扫描进度上报（特征载入/矩阵计算两阶段）
+            self.taskProgress.emit(len(pids), max(len(ids), 1),
+                                   "疑似重复人物扫描")
             sim = m @ m.T
             upper = float(self.faceClusterThreshold())
             mask = (sim >= self.DUP_MIN_SIM) & (sim < upper)
@@ -1158,24 +1169,28 @@ class LibraryBridge(QObject):
         头像数据导致弹窗打开假死）。"""
         return self._dup_candidates_impl(self.db.conn)
 
-    @Slot()
-    def dupCandidatesAsync(self) -> None:
-        """后台加载候选对列表，完成发 dupCandidatesReady（单飞行）。"""
+    @Slot(int)
+    def dupCandidatesAsync(self, anchor_pid: int = 0) -> None:
+        """后台加载候选对列表，完成发 dupCandidatesReady（单飞行）。
+
+        0.6.25 补24：anchor_pid>0 时只返回与该人物相关的候选对
+        （人物页「查找疑似重复」锚点扫后弹窗只看这一人的结果）。"""
         with self._dup_cand_lock:
             if self._dup_cand_running:
                 return
             self._dup_cand_running = True
         threading.Thread(target=self._dup_cand_worker,
+                         args=(int(anchor_pid or 0),),
                          name="dup-persons-candidates").start()
 
-    def _dup_cand_worker(self) -> None:
+    def _dup_cand_worker(self, anchor_pid: int = 0) -> None:
         import sqlite3
 
         out: list[dict] = []
         try:
             conn = sqlite3.connect(self.db.path, timeout=10)
             try:
-                out = self._dup_candidates_impl(conn)
+                out = self._dup_candidates_impl(conn, anchor_pid)
             finally:
                 conn.close()
         except Exception:
@@ -1183,12 +1198,13 @@ class LibraryBridge(QObject):
         self._dup_cand_running = False
         self.dupCandidatesReady.emit(out)
 
-    def _dup_candidates_impl(self, conn) -> list[dict]:
+    def _dup_candidates_impl(self, conn, anchor_pid: int = 0) -> list[dict]:
         """候选对列表核心（b = 照片数多的一方，即默认合并方向）。
 
         每对含双方显示名/照片数/代表头像（走 face_crops 人物缓存，零原图
         解码）与相似度百分比。重聚类后人物 id 失效的对经 INNER JOIN 自然
-        消失，无需清理钩子。"""
+        消失，无需清理钩子。0.6.25 补24：anchor_pid>0 时仅返回与锚点
+        相关的对。"""
         rows = conn.execute(
             "SELECT c.a, c.b, c.sim FROM person_dup_candidates c"
             " JOIN persons pa ON pa.id = c.a"
@@ -1196,6 +1212,9 @@ class LibraryBridge(QObject):
             " WHERE c.ignored=0 AND pa.name IS NULL AND pb.name IS NULL"
             " ORDER BY c.sim DESC"
         ).fetchall()
+        if anchor_pid:
+            rows = [r for r in rows
+                    if int(r[0]) == anchor_pid or int(r[1]) == anchor_pid]
         if not rows:
             return []
         pids = {p for r in rows for p in (r[0], r[1])}
@@ -1687,6 +1706,12 @@ class LibraryBridge(QObject):
                 conn.execute("UPDATE faces SET person_id=? WHERE person_id=?",
                              (dst, src))
                 conn.execute("DELETE FROM persons WHERE id=?", (src,))
+                # 0.6.25 补24：批量合并同样清理被并入人物的候选对
+                #（与 mergePersons 对齐；人物行虽已删、JOIN 也会过滤，
+                #  显式清理保证表内无死行）
+                conn.execute(
+                    "DELETE FROM person_dup_candidates WHERE a=? OR b=?",
+                    (src, src))
             conn.execute(
                 "UPDATE persons SET face_count=(SELECT COUNT(*) FROM faces"
                 " WHERE person_id=?) WHERE id=?", (dst, dst))
@@ -2022,7 +2047,10 @@ class LibraryBridge(QObject):
                 # 0.5.44 视频：mediaType/duration。仅 _photo_rows/photos() 提供 15 列，
                 # 其它 13 列直接查询经长度 guard 安全降级为 photo/None。
                 "mediaType": r[13] if len(r) > 13 else "photo",
-                "duration": r[14] if len(r) > 14 else None,
+                # 0.6.25 补22：None 在 PySide6 6.8（麒麟包）转 QML 时会变成
+                # undefined，ListModel.append 逐行告警"duration is undefined"
+                # 刷屏——改发 0（视频徽标对 <=0 本就不显示）
+                "duration": (r[14] if len(r) > 14 and r[14] is not None else 0),
                 # 0.5.64 损坏文件标记（仅 _photo_rows 的 16 列查询带出）
                 "decodeError": bool(r[15]) if len(r) > 15 else False,
             })

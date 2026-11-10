@@ -399,6 +399,42 @@ class TestDupPersons(_TempDB):
         # 锚点无可用代表脸 → -1
         self.assertEqual(self.bridge._dup_scan_anchor(999999), -1)
 
+    def test_merge_people_cleans_candidates(self):
+        """0.6.25 补24：人物页「合并选中」（mergePeople）同样清理候选对。"""
+        pa = self._add_person_with_faces(self._v(1.0), self.pids[:2])
+        pb = self._add_person_with_faces(self._v(0.42), self.pids[:2])
+        self.assertEqual(self.bridge._dup_scan_now(), 1)
+        # 批量合并：pa 并入 pb（与弹窗方向一致）
+        self.assertEqual(self.bridge.mergePeople([pa, pb]), 1)
+        self.assertEqual(self.bridge.dupCandidates(), [],
+                         "批量合并后引用已删除人物的候选应被清掉")
+
+    def test_candidates_anchor_filter(self):
+        """0.6.25 补24：锚点过滤——只返回与锚点人物相关的候选对。"""
+        pa = self._add_person_with_faces(self._v(1.0), self.pids[:2])
+        pb = self._add_person_with_faces(self._v(0.42), self.pids[:2])
+        pd = self._add_person_with_faces(self._v(0.45), self.pids[:2])
+        pc = self._add_person_with_faces(self._v(0.10), self.pids[:2])
+        # 锚点 pa：pb(0.42)/pd(0.45) 均落带内 → 2 对
+        self.assertEqual(self.bridge._dup_scan_anchor(pa), 2)
+        # 锚点 pb：只与 pa 落带内（pb-pd 余弦≈0.999 超聚类上限）
+        self.assertEqual(self.bridge._dup_scan_anchor(pb), 1)
+        # 无过滤：2 对
+        self.assertEqual(len(self.bridge.dupCandidates()), 2)
+        # 锚点过滤：pa → 2 对且都含 pa；pb → 1 对
+        import sqlite3
+        conn = sqlite3.connect(self.db.path)
+        try:
+            only_pa = self.bridge._dup_candidates_impl(conn, pa)
+            only_pb = self.bridge._dup_candidates_impl(conn, pb)
+        finally:
+            conn.close()
+        self.assertEqual(len(only_pa), 2)
+        for r in only_pa:
+            self.assertIn(pa, (r["a"], r["b"]))
+        self.assertEqual(len(only_pb), 1)
+        self.assertIn(pb, (only_pb[0]["a"], only_pb[0]["b"]))
+
 
 class TestFaceSearchViews(_TempDB):
     """0.6.21 人脸搜图结果双视图：平铺（照片最高分）/ 按人物分组。"""
