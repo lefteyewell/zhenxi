@@ -5,51 +5,40 @@ EXIF / folders / arbitrary combinations), thumbnails and full-size viewing,
 batch export at common resolutions — **the app never deletes or modifies your original
 files**.
 
-## Latest release v0.6.24 (2026-11-08)
+## Latest release v0.6.27 (2026-11-11)
 
 > 📥 Download: [Releases page](https://github.com/lefteyewell/zhenxi/releases) ｜
 > 📋 All version changes: [CHANGELOG.md](CHANGELOG.md)
 
-**Fixed** (verified on packaged builds)
+This release brings the fixes added after 0.6.26 into the published packages (the online v0.6.26 packages do not contain them). See CHANGELOG for details.
 
-- **Toolbar "Actions" dropdown items did nothing when clicked** — an internal
-  reference was lost during the top-bar merge; tagging / export / move-out /
-  archive / copy-path all work again
-- **Pressing Enter in the search box opened the photo preview instead of
-  searching** when photos were selected (a global shortcut took precedence) —
-  Enter now performs the search while typing
-- **The advanced search panel kept the previous conditions when reopened** —
-  it now resets automatically on every open
-- **Search-result titles were translated in the wrong format** — back to the
-  original syntax format with only the category word translated
-  (e.g. `Color: red`)
-- **Toolbar texts stayed in the old language after switching 中/EN** — titles,
-  counters and the "last action" label now refresh immediately
-- **Move-out / folder-picker dialogs overflowed on small windows or large
-  system fonts** — dialogs are now height-adaptive with clipped content
+**Fixed**
+
+- **Group view toggle did nothing in person view** - after opening a person's photo list, folder grouping now works just like in the all-photos view
+- **Some checkmarks were still rendered as radical signs** (visible on Kylin's minimal fonts) - 4 places replaced with canvas-drawn vector checkmarks, no font dependency
+- **"No results" in the duplicate-persons dialog** when the anchor person was already named - anchor mode now relaxes that filter and shows real names
+- **Duplicate scan progress shown as a counter inside the dialog** - live "Compared N / M faces" until complete, replacing the taskbar progress bar
+- **Sorting did nothing on the people page** - sorting now happens before pagination (natural name order, count order), so loaded pages follow it
+- **Face labels sometimes showed only "Person" without a number** - legacy string IDs are normalized before the name lookup
 
 **Improved**
 
-- The dark/light toggle is now a pair of text buttons matching the `中 / EN`
-  button style
-- The theme (color scheme) selector is narrower — its text label was dropped
+- **"Find likely duplicates" for a selected person now compares against all people, including named ones** - previously it only compared unnamed ones, which almost always returned nothing late in a cleanup; full-library scan scope is unchanged
 
 <details>
-<summary>Previous release v0.6.23 (2026-11-07) summary</summary>
+<summary>Previous release v0.6.26 (2026-11-10) summary</summary>
 
-- **Fixed**: syntax-based searches (flags, dates, etc.) returned very few
-  results — the query was re-read from the localized title; `flag:none` and
-  the like return full results again
-- **Fixed**: batch archive / move-out confirmation dialogs never appeared;
-  the archive confirmation had been broken since 0.5.39
-- **Fixed (Kylin)**: category pages squeezing the grid, tag multi-select bar
-  overlapping, duplicates-page thumbnails, badge overlap, checkmarks drawn as
-  radical signs, unreadable photo captions, emoji shown as boxes
-- **Fixed**: the 0.6.22 Windows package data-folder nesting issue
-- **Improved**: advanced search with calendar date pickers and Chinese flag
-  options; the gallery toolbar merged into one row; instant flag feedback;
-  face search & advanced search as standalone toolbar buttons; a full
-  translation audit (37 missing strings)
+**Fixed**
+
+- **Kylin: selected badges stuck on thumbnails and clicks gave no visual feedback** - caused by a missing `selected` role under Qt 6.8; strict boolean comparisons plus C++ `setProperty` writes fix the root cause
+- **All QML anchors-in-layout warnings removed** (9 layout-managed rows)
+- **Statistics page scrollbars no longer cover numbers** (5 lists)
+- **"Find similar photos" renamed "Find semantically similar photos"** to distinguish it from perceptual-hash duplicate detection
+- **Empty video duration became `undefined` on Qt 6.8** - now sent as 0, removing per-row ListModel warnings
+
+**Improved**
+
+- **Duplicate-persons workflow** - visible scan progress, batch merge clears candidate pairs, and person-scoped search shows only related candidates (filter can be cleared)
 
 </details>
 
