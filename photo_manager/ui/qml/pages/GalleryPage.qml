@@ -758,7 +758,7 @@ Item {
         groupMode = !groupMode
         if (LibraryBridge) LibraryBridge.setGalleryGroupView(groupMode)
         if (_mode === "all") loadAll()
-        else reloadCurrent()
+        else reloadCurrent()   /* 补25：person 等视图重载当前视图即可生效 */
     }
 
     /* 0.5.64：窗口宽度变化不再需要重建——分段 Flow 自适应重排 */
@@ -775,6 +775,8 @@ Item {
     function _inGroupMode() {
         if (root.stackMode) return false
         if (root._mode === "all") return root.groupMode
+        /* 0.6.25 补25：人物视图同样支持按文件夹分组（用户实测开关无效） */
+        if (root._mode === "person") return root.groupMode
         /* 0.6.21：人脸搜索按人物分组同样走分段分组管线 */
         if (root._mode === "facesearch") return root.faceGroupMode
         return false

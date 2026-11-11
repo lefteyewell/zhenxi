@@ -158,13 +158,19 @@ Popup {
                 Row {
                     required property int index
                     spacing: 6
+                    CheckMark {
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: 12; height: 12
+                        visible: index + 1 < root.chainCurrent
+                        markColor: "#2e7d32"
+                        strokeWidth: 2
+                    }
                     Text {
                         anchors.verticalCenter: parent.verticalCenter
                         width: 14
-                        text: index + 1 < root.chainCurrent ? "√"
-                              : (index + 1 === root.chainCurrent ? "▶" : "·")
-                        color: index + 1 < root.chainCurrent ? "#2e7d32"
-                               : (index + 1 === root.chainCurrent ? Theme.primary : Theme.textDim)
+                        visible: index + 1 >= root.chainCurrent
+                        text: index + 1 === root.chainCurrent ? "▶" : "·"
+                        color: index + 1 === root.chainCurrent ? Theme.primary : Theme.textDim
                         font.pixelSize: 11
                         font.weight: Font.Bold
                     }

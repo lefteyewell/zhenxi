@@ -328,13 +328,12 @@ Dialog {
                             color: checked ? Theme.primary : "transparent"
                             border.width: 1
                             border.color: checked ? Theme.primary : Theme.divider
-                            Text {
-                                anchors.centerIn: parent
+                            /* 0.6.25 补25：√ 字符实为根号字形，改 Canvas 手绘对勾 */
+                            CheckMark {
+                                anchors.fill: parent
+                                anchors.margins: 4
                                 visible: checked
-                                text: "√"
-                                font.pixelSize: 11
-                                font.weight: Font.Bold
-                                color: "white"
+                                strokeWidth: 2
                             }
                         }
 

@@ -102,6 +102,8 @@ class LibraryBridge(QObject):
     trayEnabledChanged = Signal(bool)  # 关闭到托盘开关变化（0.5.48，设置里唯一入口）
     faceHqReady = Signal(int)  # 0.6.20 管理头像单脸 HQ 裁剪就绪（face_id）
     dupScanFinished = Signal(int)  # 0.6.20 疑似重复人物扫描完成（候选对数，-1=失败）
+    # 0.6.25 补25：扫描进度（已对比的代表脸数 / 总数）——弹窗内计数显示
+    dupScanProgress = Signal(int, int)
     # 0.6.21 候选列表后台加载完成（真机假死修复：弹窗不再同步构建 500 对数据）
     dupCandidatesReady = Signal("QVariant")
 
@@ -1023,8 +1025,8 @@ class LibraryBridge(QObject):
             cand: list[tuple[float, int, int]] = []
             batch: list[tuple[int, "object"]] = []
             total = len(rows)
-            # 0.6.25 补24：扫描进度上报到任务栏（此前无进度，用户误以为假死）
-            self.taskProgress.emit(0, max(total, 1), "疑似重复人物扫描")
+            # 0.6.25 补25：进度改在弹窗内以计数显示（补24 的任务条形式不符预期）
+            self.dupScanProgress.emit(0, max(total, 1))
 
             def flush() -> None:
                 if not batch:
@@ -1048,10 +1050,9 @@ class LibraryBridge(QObject):
                 batch.append((pid, np.frombuffer(blob, dtype=np.float32)))
                 done += 1
                 if len(batch) >= 4096:
-                    self.taskProgress.emit(min(done, total), total,
-                                           "疑似重复人物扫描")
+                    self.dupScanProgress.emit(min(done, total), total)
                     flush()
-            self.taskProgress.emit(total, total, "疑似重复人物扫描")
+            self.dupScanProgress.emit(total, total)
             flush()
             cand.sort(reverse=True)
             cand = cand[: self.DUP_MAX_OUT]
@@ -1130,18 +1131,25 @@ class LibraryBridge(QObject):
                 return 0
             m = np.stack([desc[p] for p in pids])
             m = m / np.linalg.norm(m, axis=1, keepdims=True)
-            # 0.6.25 补24：全库扫描进度上报（特征载入/矩阵计算两阶段）
-            self.taskProgress.emit(len(pids), max(len(ids), 1),
-                                   "疑似重复人物扫描")
-            sim = m @ m.T
+            # 0.6.25 补25：矩阵分块计算，逐块上报"已对比 N / 总数"计数进度
+            #（结果与一次性 m @ m.T 等价：每块仍与全库比，行偏移归一）
             upper = float(self.faceClusterThreshold())
-            mask = (sim >= self.DUP_MIN_SIM) & (sim < upper)
-            pairs = np.argwhere(mask)
-            pairs = pairs[pairs[:, 0] < pairs[:, 1]]
-            cand = sorted(
-                ((float(sim[i, j]), pids[i], pids[j]) for i, j in pairs),
-                reverse=True,
-            )[: self.DUP_MAX_OUT]
+            n = len(pids)
+            chunk = 512
+            cand = []
+            for start in range(0, n, chunk):
+                end = min(start + chunk, n)
+                block = m[start:end]
+                sim = block @ m.T
+                mask = (sim >= self.DUP_MIN_SIM) & (sim < upper)
+                pairs = np.argwhere(mask)
+                for i, j in pairs:
+                    gi = i + start
+                    if gi < j:
+                        cand.append((float(sim[i, j]), pids[gi], pids[j]))
+                self.dupScanProgress.emit(end, n)
+            cand.sort(reverse=True)
+            cand = cand[: self.DUP_MAX_OUT]
             ignored = set()
             for a, b in conn.execute(
                 "SELECT a, b FROM person_dup_candidates WHERE ignored=1"
@@ -1205,16 +1213,21 @@ class LibraryBridge(QObject):
         解码）与相似度百分比。重聚类后人物 id 失效的对经 INNER JOIN 自然
         消失，无需清理钩子。0.6.25 补24：anchor_pid>0 时仅返回与锚点
         相关的对。"""
-        rows = conn.execute(
-            "SELECT c.a, c.b, c.sim FROM person_dup_candidates c"
-            " JOIN persons pa ON pa.id = c.a"
-            " JOIN persons pb ON pb.id = c.b"
-            " WHERE c.ignored=0 AND pa.name IS NULL AND pb.name IS NULL"
-            " ORDER BY c.sim DESC"
-        ).fetchall()
+        base = ("SELECT c.a, c.b, c.sim, pa.name, pb.name"
+                " FROM person_dup_candidates c"
+                " JOIN persons pa ON pa.id = c.a"
+                " JOIN persons pb ON pb.id = c.b"
+                " WHERE c.ignored=0")
+        # 0.6.25 补25：锚点模式放宽"双方未命名"限制——锚点人物可能已命名，
+        # 按未命名过滤会把锚点候选全部滤空（用户实测"出不来结果"）
         if anchor_pid:
-            rows = [r for r in rows
-                    if int(r[0]) == anchor_pid or int(r[1]) == anchor_pid]
+            rows = conn.execute(
+                base + " AND (c.a=? OR c.b=?) ORDER BY c.sim DESC",
+                (anchor_pid, anchor_pid)).fetchall()
+        else:
+            rows = conn.execute(
+                base + " AND pa.name IS NULL AND pb.name IS NULL"
+                " ORDER BY c.sim DESC").fetchall()
         if not rows:
             return []
         pids = {p for r in rows for p in (r[0], r[1])}
@@ -1233,13 +1246,15 @@ class LibraryBridge(QObject):
             " ) f JOIN photos p ON p.id = f.photo_id WHERE f.rn=1",
             list(pids))}
         out = []
-        for a, b, sim in rows:
+        for a, b, sim, na, nb in rows:
             a, b = int(a), int(b)
             ca, cb = counts.get(a, 0), counts.get(b, 0)
             if ca < cb:
                 a, b, ca, cb = b, a, cb, ca
+                na, nb = nb, na
+            # 补25：已命名人物显示真实名称（锚点模式放宽过滤后可能出现）
             item = {"a": a, "b": b, "sim": round(sim * 100),
-                    "aName": f"人物 #{a}", "bName": f"人物 #{b}",
+                    "aName": na or f"人物 #{a}", "bName": nb or f"人物 #{b}",
                     "aCount": ca, "bCount": cb}
             for key, pid in (("avA", a), ("avB", b)):
                 av = self._face_avatar(pid, av_rows.get(pid))

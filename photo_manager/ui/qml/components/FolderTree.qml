@@ -199,14 +199,13 @@ Item {
                : checkState === 2 ? Theme.primary
                : Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.18)
 
-        Text {                // 全选勾
+        /* 0.6.25 补25：√ 字符改 Canvas 手绘对勾 */
+        CheckMark {
+            anchors.fill: parent
+            anchors.margins: 2
             visible: checkState === 2 || selected
-            text: "√"
-            color: Theme.textOnPrimary
-            font.family: Theme.fontFamily
-            font.pixelSize: 10
-            font.bold: true
-            anchors.centerIn: parent
+            markColor: Theme.textOnPrimary
+            strokeWidth: 2
         }
         Rectangle {           // 部分横线
             visible: checkState === 1 && !selected

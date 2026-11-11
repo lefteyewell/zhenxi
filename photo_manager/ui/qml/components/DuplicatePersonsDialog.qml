@@ -72,6 +72,16 @@ Dialog {
     property bool loading: false
     Connections {
         target: LibraryBridge
+        /* 0.6.25 补25：扫描进度在弹窗内以计数显示（不用进度条）——
+           累加"已对比 N / M 张人脸"直到全部对比完毕 */
+        function onDupScanProgress(done, total) {
+            if (!root.visible)
+                return
+            root.scanBusy = true
+            countText.text = done >= total
+                ? I18n.tr("全部对比完毕（") + total + I18n.tr(" 张人脸），正在汇总…")
+                : I18n.tr("已对比 ") + done + " / " + total + I18n.tr(" 张人脸")
+        }
         function onDupScanFinished(n) {
             root.scanBusy = false
             if (root.visible) {

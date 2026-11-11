@@ -295,12 +295,12 @@ Popup {
                         color: isSelected ? Theme.primary : "transparent"
                         border.width: 1
                         border.color: isSelected ? Theme.primary : Theme.divider
-                        Text {
-                            anchors.centerIn: parent
+                        /* 0.6.25 补25：√ 字符改 Canvas 手绘对勾 */
+                        CheckMark {
+                            anchors.fill: parent
+                            anchors.margins: 3
                             visible: isSelected
-                            text: "√"
-                            font.pixelSize: 11
-                            color: "white"
+                            strokeWidth: 2
                         }
                     }
                     Text {
