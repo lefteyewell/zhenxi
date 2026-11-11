@@ -138,7 +138,10 @@ Item {
     }
 
     function _appendPeoplePage() {
-        var r = LibraryBridge.peoplePaged(root._pplOffset, root._pplPage, "")
+        /* 0.6.25 补25：排序在 bridge 分页切片前完成（此前分页路径绕过
+           _sortedArr，排序菜单对人物列表无效——用户实测反馈） */
+        var r = LibraryBridge.peoplePaged(root._pplOffset, root._pplPage, "",
+                                          root.sortMode)
         var arr = r.items
         for (var i = 0; i < arr.length; ++i) {
             var it = arr[i]

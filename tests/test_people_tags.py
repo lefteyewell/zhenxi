@@ -435,6 +435,78 @@ class TestDupPersons(_TempDB):
         self.assertEqual(len(only_pb), 1)
         self.assertIn(pb, (only_pb[0]["a"], only_pb[0]["b"]))
 
+    def test_named_anchor_candidates_visible(self):
+        """0.6.25 补25：锚点人物已命名时，候选对不再被"双方未命名"
+        过滤滤空（用户实测"出不来结果"），且显示真实名称。"""
+        pa = self._add_person_with_faces(self._v(1.0), self.pids[:2])
+        pb = self._add_person_with_faces(self._v(0.42), self.pids[:2])
+        self.assertEqual(self.bridge._dup_scan_anchor(pa), 1)
+        # 锚点 pa 命名后，旧过滤会把 (pa, pb) 全滤空 → 现在应可见
+        self.assertTrue(self.bridge.renamePerson(pa, "有名字的人"))
+        import sqlite3
+        conn = sqlite3.connect(self.db.path)
+        try:
+            cands = self.bridge._dup_candidates_impl(conn, pa)
+        finally:
+            conn.close()
+        self.assertEqual(len(cands), 1, "命名锚点的候选对应可见")
+        self.assertEqual({cands[0]["a"], cands[0]["b"]}, {pa, pb})
+        # 显示真实名称（合并方向归一后任一侧）
+        names = {cands[0]["aName"], cands[0]["bName"]}
+        self.assertIn("有名字的人", names)
+
+    def test_anchor_scan_includes_named_persons(self):
+        """0.6.25 补25：锚点扫描比较全部其他人物（含已命名）。"""
+        pa = self._add_person_with_faces(self._v(1.0), self.pids[:2])
+        pb = self._add_person_with_faces(self._v(0.42), self.pids[:2])
+        pc = self._add_person_with_faces(self._v(0.10), self.pids[:2])
+        self.assertTrue(self.bridge.renamePerson(pb, "已命名对手"))
+        # 锚点 pa（未命名）：pb 已命名但仍应命中
+        self.assertEqual(self.bridge._dup_scan_anchor(pa), 1)
+        import sqlite3
+        conn = sqlite3.connect(self.db.path)
+        try:
+            cands = self.bridge._dup_candidates_impl(conn, pa)
+        finally:
+            conn.close()
+        self.assertEqual(len(cands), 1)
+        names = {cands[0]["aName"], cands[0]["bName"]}
+        self.assertIn("已命名对手", names, "已命名对手应显示真实名称")
+
+    def test_people_paged_sort_by_name(self):
+        """0.6.25 补25：人物列表按名称排序（自然数序），分页路径生效。"""
+        pa = self._add_person_with_faces(self._v(1.0), self.pids[:1])
+        pb = self._add_person_with_faces(self._v(1.0), self.pids[1:2])
+        pc = self._add_person_with_faces(self._v(1.0), self.pids[2:3])
+        self.assertTrue(self.bridge.renamePerson(pa, "人物 10"))
+        self.assertTrue(self.bridge.renamePerson(pb, "人物 2"))
+        # sort=1 名称 A→Z 自然数序：人物 2 在人物 10 之前
+        # 类型冲突回归：同前缀后接 数字 vs 字母（int/str 混排曾致 TypeError）
+        self.assertTrue(self.bridge.renamePerson(pc, "人物A"))
+        r = self.bridge.peoplePaged(0, 50, "", 1)
+        names = [it["name"] for it in r["items"]]
+        self.assertLess(names.index("人物 2"), names.index("人物 10"),
+                        "自然数序：人物 2 应排在人物 10 之前")
+        # sort=0 数量序（默认）：数量相同时按 id 序（人物 10 在前）
+        r0 = self.bridge.peoplePaged(0, 50, "", 0)
+        names0 = [it["name"] for it in r0["items"]]
+        self.assertLess(names0.index("人物 10"), names0.index("人物 2"))
+
+    def test_scan_progress_signal_emitted(self):
+        """0.6.25 补25：扫描过程发射 dupScanProgress（已对比数/总数）。"""
+        pa = self._add_person_with_faces(self._v(1.0), self.pids[:2])
+        pb = self._add_person_with_faces(self._v(0.42), self.pids[:2])
+        events = []
+        self.bridge.dupScanProgress.connect(
+            lambda done, total: events.append((done, total)))
+        self.bridge._dup_scan_now()
+        self.assertTrue(events, "全库扫描应至少发射一次进度")
+        self.assertEqual(events[-1], (2, 2), "最终计数 = 全部代表脸数")
+        events.clear()
+        self.assertEqual(self.bridge._dup_scan_anchor(pa), 1)
+        self.assertTrue(events, "锚点扫描同样应发射进度")
+        self.assertEqual(events[-1][0], events[-1][1], "结束时 done == total")
+
 
 class TestFaceSearchViews(_TempDB):
     """0.6.21 人脸搜图结果双视图：平铺（照片最高分）/ 按人物分组。"""

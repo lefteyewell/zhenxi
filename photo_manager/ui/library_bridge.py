@@ -967,9 +967,10 @@ class LibraryBridge(QObject):
     def dupScanFor(self, person_id: int) -> str:
         """以单个人物为锚点扫疑似重复（0.6.21 两步式，真机反馈）。
 
-        只算该人物 vs 全部未命名人物代表脸（O(N) 余弦），不清其他候选
-        对；结果同样落 person_dup_candidates，信号/弹窗复用全库扫描
-        链路。单飞行与全库扫描互斥。"""
+        0.6.25 补25：算该人物 vs **全部其他人物**代表脸（O(N) 余弦，
+        含已命名——整理后期未命名人物所剩无几，仅比未命名必然无结果），
+        不清其他候选对；结果同样落 person_dup_candidates，信号/弹窗
+        复用全库扫描链路。单飞行与全库扫描互斥。"""
         with self._dup_lock:
             if self._dup_scan_running:
                 return "running"
@@ -994,7 +995,11 @@ class LibraryBridge(QObject):
         """锚点扫描核心（同步版，测试直调）。返回新增候选对数。
 
         锚点无可用代表脸返回 -1；已忽略对跳过；每批 4096 向量流式
-        余弦，超大库不做一次性大矩阵。"""
+        余弦，超大库不做一次性大矩阵。
+        0.6.25 补25：比较对象从"仅未命名人物"放宽为**全部其他人物**
+        （含已命名）——用户整理后期库内未命名人物所剩无几，按人查
+        必然空手而归（实测反馈"好像没有实现"）；已命名对手在弹窗中
+        显示真实名称（候选加载同步支持）。"""
         import sqlite3
 
         import numpy as np
@@ -1013,8 +1018,7 @@ class LibraryBridge(QObject):
                 "SELECT f.person_id, f.descriptor FROM"
                 " (SELECT id, person_id, descriptor, ROW_NUMBER() OVER"
                 "  (PARTITION BY person_id ORDER BY score DESC) rn"
-                "  FROM faces WHERE hidden=0 AND person_id IN"
-                "   (SELECT id FROM persons WHERE name IS NULL)) f"
+                "  FROM faces WHERE hidden=0 AND person_id IS NOT NULL) f"
                 " WHERE f.rn=1").fetchall()
             upper = float(self.faceClusterThreshold())
             ignored = set()
@@ -1350,12 +1354,16 @@ class LibraryBridge(QObject):
                 bx, by, bw, bh = json.loads(bbox)
             except Exception:
                 continue
+            # 0.6.25 补25：pid 归一为 int（历史数据可能存字符串），保证
+            # 显示映射查找可靠；无归属统一"未命名人物"
+            pid = int(pid) if pid not in (None, "") else 0
             out.append({
                 "id": rid,
                 "bbox": [bx, by, bw, bh],
                 "score": score or 0,
-                "personId": pid or 0,
-                "personName": display.get(pid) or "未命名人物",
+                "personId": pid,
+                "personName": display.get(pid, "未命名人物") if pid
+                              else "未命名人物",
                 "blurIdx": int(blur) if blur is not None else -1,
                 "nx": bx / sw, "ny": by / sh,
                 "nw": bw / sw, "nh": bh / sh,
@@ -1554,14 +1562,18 @@ class LibraryBridge(QObject):
             log.exception("批量移动人脸失败")
             return 0
 
-    @Slot(int, int, str, result="QVariant")
-    def peoplePaged(self, offset: int, limit: int, search: str = "") -> dict:
-        """人物列表分页（0.6.15）：按照片数降序，支持服务器端按名搜索。
+    @Slot(int, int, str, int, result="QVariant")
+    def peoplePaged(self, offset: int, limit: int, search: str = "",
+                    sort: int = 0) -> dict:
+        """人物列表分页（0.6.15）：默认照片数降序，支持服务器端按名搜索。
 
         0.6.14 修了解码风暴后，7.8 万人物一次性构造完整列表仍是内存/换页
         大头（Python dict → QVariant → QML 模型三层拷贝，人物页与"返回"
         假死的最终形态，交换空间被吃掉一半）。改为每页 300、滚动到底自动
-        追加；返回 {items:[...], total:N}（未命名人物固定排在最后一项）。"""
+        追加；返回 {items:[...], total:N}（未命名人物固定排在最后一项）。
+        0.6.25 补25：sort=1 名称 A→Z（自然数序：人物1、人物2…人物10）——
+        此前 QML 排序菜单对人物列表完全无效（分页路径绕过了 _sortedArr，
+        用户实测反馈），改为排序在分页切片前完成，分页性能不受影响。"""
         conn = self.db.conn
         names = self._person_display_map()
         counts = {r[0]: r[1] for r in conn.execute(
@@ -1573,6 +1585,17 @@ class LibraryBridge(QObject):
             " WHERE hidden=0 AND blur IS NOT NULL AND blur >= 0"
             " GROUP BY person_id")}
         q = (search or "").strip().lower()
+        import re
+
+        def _nat_key(s: str) -> list:
+            """自然数序键：人物2 < 人物10（0.5.67 同款语义，Python 侧）。
+
+            键元素统一为 (0, int)/(1, str) 元组——纯 int/str 混排会在
+            "人物1" vs "人物A"（同前缀后一段一数字一字母）时抛
+            TypeError（Python 3 禁止 int/str 比较），人物页直接报错。"""
+            return [(0, int(p)) if p.isdigit() else (1, p)
+                    for p in re.split(r"(\d+)", s)]
+
         entries = []
         for pid in sorted(names):
             if pid <= 0:
@@ -1580,8 +1603,13 @@ class LibraryBridge(QObject):
             name = names[pid]
             if q and q not in name.lower():
                 continue
-            entries.append((-counts.get(pid, 0), pid, name))
-        entries.sort()
+            # 统一 (排序键, pid, name) 三元组——下游解包取 pid/name，
+            # 排序只看键（数量序：-张数→pid；名称序：自然数键）
+            if int(sort) == 1:
+                entries.append((_nat_key(name.lower()), pid, name))
+            else:
+                entries.append(((-counts.get(pid, 0), pid), pid, name))
+        entries.sort(key=lambda e: e[0])
         unseen = conn.execute(
             "SELECT COUNT(DISTINCT photo_id) FROM faces"
             " WHERE (person_id IS NULL OR person_id='') AND hidden=0"
