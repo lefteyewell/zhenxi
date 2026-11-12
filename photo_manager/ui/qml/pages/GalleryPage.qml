@@ -324,6 +324,12 @@ Item {
             countText.text = _loaded + I18n.tr(" 张\n按人物分组（组内按相似度）")
             return
         }
+        /* 0.6.28 补26：堆叠无数据时给操作指引（此前空白一片，
+           麒麟真机反馈——堆叠是独立手动任务，库未跑过时本视图为空） */
+        if (_mode === "stacks" && totalCount === 0) {
+            countText.text = I18n.tr("未检测到照片堆叠\n可在工具中心运行「检测照片堆叠」")
+            return
+        }
         var label = _mode === "all" && totalCount > 0
                     ? _loaded + " / " + totalCount + I18n.tr(" 张")
                     : _loaded + I18n.tr(" 张")
@@ -599,6 +605,10 @@ Item {
     }
 
     function loadStacks() {
+        /* 0.6.28 补26：记住进入堆叠前的视图，退出时恢复
+           （此前 person 等模式进入堆叠、再退出一律 loadAll() 跳"全部照片"，
+           人物上下文凭空丢失——麒麟真机反馈） */
+        root._preStackMode = root._mode
         root._setTitle("stack", "")
         _mode = "stacks"
         currentEventId = -1
@@ -607,6 +617,18 @@ Item {
         stackMode = true
         _reset()
         _fetchMore()
+    }
+
+    /* 0.6.28 补26：退出堆叠视图——回到进入前的视图（all/person/…），
+       无记录（如启动即切堆叠）时维持原 loadAll() 行为 */
+    function _exitStacks() {
+        root.stackMode = false
+        if (root._preStackMode && root._preStackMode !== "stacks") {
+            root._mode = root._preStackMode
+            root.reloadCurrent()
+        } else {
+            root.loadAll()
+        }
     }
 
     function loadAlbum(albumId, albumName) {
@@ -753,6 +775,8 @@ Item {
     /* 0.6.21：人脸搜索结果「按人物分组」排列（仅 facesearch 模式可用，
        组内仍按相似度降序，组可折叠——复用 all 模式的分段分组管线） */
     property bool faceGroupMode: false
+    /* 0.6.28 补26：进入堆叠前的视图模式（退出堆叠时恢复） */
+    property string _preStackMode: ""
 
     function toggleGroupMode() {
         groupMode = !groupMode
@@ -1257,7 +1281,9 @@ Item {
                         anchors.leftMargin: 6
                         anchors.rightMargin: 6
                         anchors.bottomMargin: 3
-                        text: (model.takenAt || "").slice(5) + "  " + model.name
+                        /* 0.6.29：只显示文件名——此前前缀的拍摄日期时间挤压
+                           长文件名（真机反馈），拍摄时间信息栏里仍有 */
+                        text: model.name
                         font.family: Theme.fontFamily
                         font.pixelSize: 10
                         color: "white"
@@ -1471,8 +1497,13 @@ Item {
                     MenuItem {
                         text: I18n.tr("全部")
                         checkable: true
-                        checked: root._mode === "all"
-                        onTriggered: root.loadAll()
+                        /* 0.6.29 补：人物模式下勾「全部」= 重载该人物全部照片，
+                           保持在人物范围内（真机反馈：此前 loadAll() 直接跳回
+                           全部照片列表，丢失人物上下文） */
+                        checked: root._mode === "all" || root._mode === "person"
+                        onTriggered: root._mode === "person"
+                                     ? root.loadPerson(root._filterValue)
+                                     : root.loadAll()
                     }
                     MenuItem {
                         text: I18n.tr("精选")
@@ -1504,7 +1535,7 @@ Item {
                 Layout.preferredWidth: 96
                 height: 30
                 onClicked: {
-                    if (root.stackMode) { root.stackMode = false; root.loadAll() }
+                    if (root.stackMode) { root._exitStacks() }
                     else root.loadStacks()
                 }
             }

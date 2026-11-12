@@ -67,7 +67,7 @@ Dialog {
     property bool _autoStart: false
     property bool _trayEnabled: true
     property bool _startMax: true   /* 0.5.67 启动窗口最大化 */
-    property real _faceThr: 0.5   /* 0.5.67 人脸聚类相似度阈值 */
+    property real _faceThr: 0.6   /* 0.5.67 人脸聚类相似度阈值（0.6.28 补26 默认 0.6） */
     property string _parMode: "auto"   /* 0.6.9 分析并行度 */
     property int _parCustom: 4
 
@@ -76,7 +76,7 @@ Dialog {
         _autoStart = LibraryBridge ? LibraryBridge.autoStartEnabled() : false
         _trayEnabled = LibraryBridge ? LibraryBridge.trayEnabled() : true
         _startMax = LibraryBridge ? LibraryBridge.startupMaximizedEnabled() : true
-        _faceThr = LibraryBridge ? LibraryBridge.faceClusterThreshold() : 0.5
+        _faceThr = LibraryBridge ? LibraryBridge.faceClusterThreshold() : 0.6
         _parMode = LibraryBridge ? LibraryBridge.analysisParallelMode() : "auto"
         _parCustom = LibraryBridge ? LibraryBridge.analysisParallelCustom() : 4
         darkChk.checked = (ThemeController ? ThemeController.dark : false)
@@ -241,10 +241,15 @@ Dialog {
                 }
                 Text {
                     Layout.fillWidth: true
+                    /* 0.6.28：突出「人脸聚类」任务名（真机反馈误点「人脸识别」）；
+                       StyledText 加粗+主题色 */
+                    textFormat: Text.StyledText
                     text: I18n.tr("越大越严格：调高会把相像的人物拆开（宁分勿合，需手动合并），"
                                   + "调低合并更激进（误并风险增大）。"
-                                  + "改动后需重新执行「人脸聚类」才生效（工具中心 → 人脸聚类）。"
-                                  + "建议设置为 0.5，过高会导致运行缓慢。")
+                                  + "改动后需重新执行任务才生效：<b><font color=\"")
+                        + Theme.primary + I18n.tr("\">工具中心 → 人脸聚类</font></b>"
+                                  + "（注意不是「人脸识别」——识别只检测人脸，不重新分组）。"
+                                  + "建议设置为 0.6，过高会导致运行缓慢。")
                     font.family: Theme.fontFamily
                     font.pixelSize: 11
                     color: Theme.textDim

@@ -138,12 +138,14 @@ class LibraryBridge(QObject):
         # 0.5.49：自动语义索引挂起标志（分析链占用 _busy 时暂存，链尾接续）
         self._clip_pending = False
         # 0.5.67：人脸聚类相似度阈值（用户可调，0.40~0.70）。
-        # 0.6.9：默认 0.50 → 0.60（用户实测 0.5 偏松易误并）。
+        # 0.6.9：默认 0.50 → 0.60（用户实测 0.5 偏松易误并）——注释与
+        # 异常兜底当时都改成 0.6，但 .value 默认值漏改，实际仍生效 0.5
+        # （0.6.28 补26 修正）；QSettings 已存过值的用户不受影响。
         # 进程内单一真值 + QSettings 持久化（同上，避免跨实例缓存不一致）。
         try:
             self._face_threshold = min(0.70, max(0.40, float(
                 _QS("PhotoManager", "PhotoManager")
-                .value("faces/clusterThreshold", 0.5, type=float))))
+                .value("faces/clusterThreshold", 0.6, type=float))))
         except (TypeError, ValueError):
             self._face_threshold = 0.6
         # 0.6.9：分析并行度（"auto"=自动留 2 核 / "full"=全速占满核 /
@@ -175,8 +177,14 @@ class LibraryBridge(QObject):
         # 0.6.20：疑似重复人物后台扫描（单飞行）
         self._dup_scan_running = False
         self._dup_lock = threading.Lock()
+        # 0.6.28：记录最近一次扫描进度 (done, total)——弹窗中途打开也能立刻
+        # 显示计数（此前信号只在弹窗可见时被消费，晚开弹窗看不到进度）
+        self._dup_scan_progress = (0, 0)
         self._dup_cand_running = False
         self._dup_cand_lock = threading.Lock()
+        # 0.6.28：候选加载单飞行期间的新请求缓存——此前直接丢弃，导致
+        # 合并/忽略后紧接着的 reload 静默失效（行不消失、计数不更新）
+        self._dup_cand_pending = None
         self._tree_expanded: set[str] = set()
         self._dir_cache: dict[str, str] | None = None
         self._direct_cache: set[str] | None = None
@@ -959,6 +967,7 @@ class LibraryBridge(QObject):
             if self._dup_scan_running:
                 return "running"
             self._dup_scan_running = True
+            self._dup_scan_progress = (0, 0)   # 0.6.28 弹窗晚开也要从 0 显示
         threading.Thread(target=self._dup_scan_worker, daemon=True,
                          name="dup-persons-scan").start()
         return "started"
@@ -975,6 +984,7 @@ class LibraryBridge(QObject):
             if self._dup_scan_running:
                 return "running"
             self._dup_scan_running = True
+            self._dup_scan_progress = (0, 0)   # 0.6.28 弹窗晚开也要从 0 显示
         threading.Thread(target=self._dup_anchor_worker,
                          args=(int(person_id),), daemon=True,
                          name="dup-persons-anchor").start()
@@ -1030,7 +1040,7 @@ class LibraryBridge(QObject):
             batch: list[tuple[int, "object"]] = []
             total = len(rows)
             # 0.6.25 补25：进度改在弹窗内以计数显示（补24 的任务条形式不符预期）
-            self.dupScanProgress.emit(0, max(total, 1))
+            self._emit_dup_progress(0, max(total, 1))
 
             def flush() -> None:
                 if not batch:
@@ -1054,9 +1064,9 @@ class LibraryBridge(QObject):
                 batch.append((pid, np.frombuffer(blob, dtype=np.float32)))
                 done += 1
                 if len(batch) >= 4096:
-                    self.dupScanProgress.emit(min(done, total), total)
+                    self._emit_dup_progress(min(done, total), total)
                     flush()
-            self.dupScanProgress.emit(total, total)
+            self._emit_dup_progress(total, total)
             flush()
             cand.sort(reverse=True)
             cand = cand[: self.DUP_MAX_OUT]
@@ -1070,11 +1080,20 @@ class LibraryBridge(QObject):
             conn.close()
 
     @Slot(result="QVariant")
+    def _emit_dup_progress(self, done: int, total: int) -> None:
+        """0.6.28：进度信号同时落内存——dupScanStatus 可随时取（晚开弹窗
+        立即显示「已对比 N / M」，不再错过信号窗口）。"""
+        self._dup_scan_progress = (int(done), int(total))
+        self.dupScanProgress.emit(int(done), int(total))
+
     def dupScanStatus(self) -> dict:
         n = self.db.conn.execute(
             "SELECT COUNT(*) FROM person_dup_candidates WHERE ignored=0"
         ).fetchone()[0]
-        return {"running": self._dup_scan_running, "count": n}
+        with self._dup_lock:
+            done, total = self._dup_scan_progress
+        return {"running": self._dup_scan_running, "count": n,
+                "done": done, "total": total}
 
     def _dup_scan_worker(self) -> None:
         try:
@@ -1151,7 +1170,7 @@ class LibraryBridge(QObject):
                     gi = i + start
                     if gi < j:
                         cand.append((float(sim[i, j]), pids[gi], pids[j]))
-                self.dupScanProgress.emit(end, n)
+                self._emit_dup_progress(end, n)
             cand.sort(reverse=True)
             cand = cand[: self.DUP_MAX_OUT]
             ignored = set()
@@ -1186,9 +1205,13 @@ class LibraryBridge(QObject):
         """后台加载候选对列表，完成发 dupCandidatesReady（单飞行）。
 
         0.6.25 补24：anchor_pid>0 时只返回与该人物相关的候选对
-        （人物页「查找疑似重复」锚点扫后弹窗只看这一人的结果）。"""
+        （人物页「查找疑似重复」锚点扫后弹窗只看这一人的结果）。
+        0.6.28：单飞行期间的新请求不再丢弃而是缓存（pending），当前
+        加载完成后自动补跑——此前合并/忽略后紧接着的 reload 被静默
+        丢掉，弹窗里的行不消失、计数不更新（真机反馈）。"""
         with self._dup_cand_lock:
             if self._dup_cand_running:
+                self._dup_cand_pending = int(anchor_pid or 0)
                 return
             self._dup_cand_running = True
         threading.Thread(target=self._dup_cand_worker,
@@ -1198,17 +1221,25 @@ class LibraryBridge(QObject):
     def _dup_cand_worker(self, anchor_pid: int = 0) -> None:
         import sqlite3
 
-        out: list[dict] = []
-        try:
-            conn = sqlite3.connect(self.db.path, timeout=10)
+        while True:
+            out: list[dict] = []
             try:
-                out = self._dup_candidates_impl(conn, anchor_pid)
-            finally:
-                conn.close()
-        except Exception:
-            log.exception("疑似重复候选加载失败")
-        self._dup_cand_running = False
-        self.dupCandidatesReady.emit(out)
+                conn = sqlite3.connect(self.db.path, timeout=10)
+                try:
+                    out = self._dup_candidates_impl(conn, anchor_pid)
+                finally:
+                    conn.close()
+            except Exception:
+                log.exception("疑似重复候选加载失败")
+            self.dupCandidatesReady.emit(out)
+            # 0.6.28：取走飞行期间缓存的新请求继续跑（无则收尾）
+            with self._dup_cand_lock:
+                nxt = self._dup_cand_pending
+                self._dup_cand_pending = None
+                if nxt is None:
+                    self._dup_cand_running = False
+                    return
+                anchor_pid = nxt
 
     def _dup_candidates_impl(self, conn, anchor_pid: int = 0) -> list[dict]:
         """候选对列表核心（b = 照片数多的一方，即默认合并方向）。
@@ -1253,7 +1284,14 @@ class LibraryBridge(QObject):
         for a, b, sim, na, nb in rows:
             a, b = int(a), int(b)
             ca, cb = counts.get(a, 0), counts.get(b, 0)
-            if ca < cb:
+            # 0.6.28 方向修正：b = 合并保留方（dst），应为照片数多的一方
+            #（此前 swap 条件写反成"照片多的一方被并入照片少的"，与弹窗
+            #  文案承诺相反——人物均未命名时无感，用户要求保留命名时才会
+            #  暴露成丢名字/丢照片数）。恰有一方已命名时并入该方优先。
+            if ca > cb:
+                a, b, ca, cb = b, a, cb, ca
+                na, nb = nb, na
+            if bool(na) != bool(nb) and na:
                 a, b, ca, cb = b, a, cb, ca
                 na, nb = nb, na
             # 补25：已命名人物显示真实名称（锚点模式放宽过滤后可能出现）
@@ -1741,7 +1779,15 @@ class LibraryBridge(QObject):
         if len(ids) < 2:
             return 0
         dst = ids[0]
-        srcs = ids[1:]
+        # 0.6.28：恰有一个已命名人物时并入该方（无论顺序/照片数），
+        # 保留用户命名；多个已命名或全部未命名维持"合并到第一个"
+        marks = ",".join("?" * len(ids))
+        named = {int(r[0]) for r in self.db.conn.execute(
+            f"SELECT id FROM persons WHERE id IN ({marks})"
+            " AND name IS NOT NULL AND name != ''", ids)}
+        if len(named & set(ids)) == 1:
+            dst = next(iter(named & set(ids)))
+        srcs = [i for i in ids if i != dst]
         conn = self.db.conn
         try:
             conn.execute("BEGIN")
@@ -4459,9 +4505,13 @@ class LibraryBridge(QObject):
 
     def _summarize(self, kind: str, stats: dict) -> None:
         if kind == "faces":
+            # 0.6.28 补26：明确"增量补扫"语义——本任务只处理 face_done=0 的
+            # 照片（上次分析失败/中断遗留或新入库），不是全库重扫；
+            # "新增 N 张脸"指这批照片里检出的人脸数（0.6.21 麒麟真机反馈：
+            # 扫 47 张"增加有人脸 1 万多张"被误读为异常）
             msg = (
-                _tr("人脸检测完成：扫描 {p1} 张，").format(p1=stats.get('scanned', 0))
-                + _tr("检出 {p1} 张含人脸（共").format(p1=stats.get('with_faces', 0))
+                _tr("人脸检测完成：补扫 {p1} 张待分析照片，").format(p1=stats.get('scanned', 0))
+                + _tr("其中 {p1} 张检出人脸（新增").format(p1=stats.get('with_faces', 0))
                 + _tr(" {p1} 张脸），失败 {p2}").format(p1=stats.get('faces', 0), p2=stats.get('failed', 0))
             )
             cl = stats.get("cluster") or {}

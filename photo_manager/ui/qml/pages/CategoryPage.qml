@@ -98,9 +98,11 @@ Item {
     }
 
     function updateBatchBar() {
-        /* 0.5.41：批量条在「多选模式」下常驻占位（保留 40px 高度），
-           避免勾选第二个头像时列表突然下跳、上方空出一行 */
-        batchBar.visible = root._batchMode
+        /* 0.6.29：批量条已并入顶栏一行，本函数保留为兼容空实现
+           （toggleSelect / enterBatch / 删除·取消按钮等既有调用点）；
+           顺带在勾选数不足 2 时复位删除按钮的二次确认态 */
+        if (root.selectedIds.length < 2)
+            root._confirmDelete = false
     }
 
     function enterBatch() {
@@ -208,15 +210,40 @@ Item {
                 font.pixelSize: 12
                 color: Theme.textDim
             }
-            /* 0.6.23：弹性填充只留 fillWidth——fillHeight 把标题行撑到数百像素、
-               照片列表被挤到底（与 GalleryPage 同款坑，人物/地点/设备页都中招） */
-            Item { Layout.fillWidth: true }
+            /* 0.6.29 补（真机反馈）：操作按钮组改为靠左对齐（去掉原弹性填充），
+               窗口过窄放不下整组按钮时出现水平滚动条（Flickable + AsNeeded）；
+               「取消选择」按钮删除——「选择」本身即进入/退出开关，已勾选项
+               再次点击即取消勾选，无需单独的清空按钮 */
+            Flickable {
+                id: categoryActionsFlick
+                /* 0.6.29 探针实证：此处禁止 Layout.fillHeight——RowLayout 内
+                   弹性填充会把整行撑到数百像素（0.6.21 同款坑，offscreen
+                   探针实测 48→295px）。固定 30 高 + 垂直居中，滚动条悬浮底边 */
+                Layout.fillWidth: true
+                Layout.preferredHeight: 30
+                Layout.alignment: Qt.AlignVCenter
+                clip: true
+                contentWidth: categoryActionsRow.width
+                contentHeight: height
+                boundsBehavior: Flickable.StopAtBounds
+                /* 0.6.29 补2（真机反馈）：AsNeeded 只在鼠标悬停/交互时短暂出现，
+                   改为按需常驻——内容超宽时 AlwaysOn 常驻显示，不超宽 AlwaysOff */
+                ScrollBar.horizontal: PMScrollBar {
+                    policy: categoryActionsFlick.contentWidth > categoryActionsFlick.width
+                            ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff
+                }
+
+                Row {
+                    id: categoryActionsRow
+                    spacing: Theme.spacingSmall
+                    y: 0
+
             PMButton {
                 objectName: "categorySortBtn"
                 tooltip: I18n.tr("切换列表排序方式（数量/名称）")
                 text: I18n.tr("排序 ▾")
                 height: 30
-                Layout.alignment: Qt.AlignVCenter
+                onClicked: categorySortMenu.popup(this, 0, height + 2)
                 Menu {
                     id: categorySortMenu
                     popupType: Popup.Item   /* 0.6.21：native Menu 在麒麟上点击项无效 */
@@ -225,29 +252,104 @@ Item {
                     MenuItem { text: I18n.tr("按名称（A→Z）"); checkable: true; checked: root.sortMode === 1
                                onTriggered: { root.sortMode = 1; root.refresh() } }
                 }
-                onClicked: categorySortMenu.popup(this, 0, height + 2)
             }
+            /* 0.6.29：人物页操作按钮合并到顶栏一行（真机反馈第二行批量条
+               不直观）——排序 / 选择 / 合并 / 删除 / 查找疑似重复；
+               合并·删除·查重按可用性置灰（PMButton disabled 态自动变灰），
+               按钮位置固定不随勾选数跳动 */
             PMButton {
                 objectName: "categoryBatchBtn"
-                tooltip: I18n.tr("进入/退出多选模式，可勾选多个人物批量合并")
-                text: _batchMode ? I18n.tr("退出多选") : I18n.tr("多选")
+                tooltip: I18n.tr("进入/退出选择模式，可勾选多个人物批量合并或删除")
+                text: _batchMode ? I18n.tr("退出选择") : I18n.tr("选择")
                 width: 72
                 height: 30
                 visible: kind === "people"
-                Layout.alignment: Qt.AlignVCenter
                 onClicked: root.enterBatch()
             }
-            /* 0.6.20：疑似重复人物扫描入口（阶段一 Top-N 代表脸余弦） */
             PMButton {
-                objectName: "dupPersonsBtn"
-                tooltip: I18n.tr("扫描未命名人物中可能是同一个人的组合，支持批量合并")
-                text: I18n.tr("疑似重复")
+                objectName: "categoryBatchMergeBtn"
+                tooltip: root.selectedIds.length >= 2
+                         ? I18n.tr("把勾选的人物合并到第一个（照片归属一并转移）")
+                         : I18n.tr("需勾选 2 个以上（当前已选 ") + root.selectedIds.length + I18n.tr(" 个）")
+                text: I18n.tr("合并")
+                width: 56
+                height: 30
+                visible: kind === "people"
+                enabled: root.selectedIds.length >= 2
+                onClicked: {
+                    if (root.selectedIds.length < 2)
+                        return
+                    root.batchMergeRequested(root.selectedIds)
+                }
+            }
+            PMButton {
+                id: batchDeleteBtn
+                objectName: "categoryBatchDeleteBtn"
+                /* 0.6.29 补：删除放宽到勾选 1 个即可用（真机反馈：删除单个人物
+                   是正常诉求，删除人物只移除人脸归属，照片不受影响） */
+                tooltip: root.selectedIds.length >= 1
+                         ? I18n.tr("删除选中的人物：人脸回归未指派（可重新聚类或手动指派），照片不受影响")
+                         : I18n.tr("请先勾选要删除的人物")
+                text: root._confirmDelete && root.selectedIds.length >= 1
+                      ? I18n.tr("确认删除？")
+                      : I18n.tr("删除")
                 width: 84
                 height: 30
                 visible: kind === "people"
-                Layout.alignment: Qt.AlignVCenter
-                onClicked: root.dupRequested()
+                enabled: root.selectedIds.length >= 1
+                emphasized: root._confirmDelete && root.selectedIds.length >= 1
+                onClicked: {
+                    if (root.selectedIds.length < 1)
+                        return
+                    if (!root._confirmDelete) {
+                        root._confirmDelete = true
+                        delReset.restart()
+                        return
+                    }
+                    root._confirmDelete = false
+                    delReset.stop()
+                    LibraryBridge.deletePersons(root.selectedIds)
+                    root.selectedIds = []
+                    root.updateBatchBar()
+                    root.refresh()
+                }
+                Timer {
+                    id: delReset
+                    interval: 4000
+                    onTriggered: root._confirmDelete = false
+                }
             }
+            /* 疑似重复：未进入选择/勾选 0 个=全库扫描入口（原独立按钮功能）；
+               勾选 1 个=以该人物为锚点扫描；勾选多个=置灰（改用合并/删除） */
+            PMButton {
+                objectName: "dupPersonsBtn"
+                tooltip: root.selectedIds.length === 1
+                         ? I18n.tr("以选中人物为基准，扫描其余人物中可能是同一人的组合（轻量，只与这一个人比较）")
+                         : (root.selectedIds.length >= 2
+                            ? I18n.tr("已勾选多个人物：请改用合并/删除，或取消勾选后再查重")
+                            : I18n.tr("扫描未命名人物中可能是同一个人的组合，支持批量合并"))
+                text: I18n.tr("查找疑似重复")
+                width: 104
+                height: 30
+                visible: kind === "people"
+                enabled: root.selectedIds.length <= 1
+                onClicked: {
+                    if (root.selectedIds.length === 1)
+                        root.dupForRequested(root.selectedIds[0])
+                    else
+                        root.dupRequested()
+                }
+            }
+            Text {
+                visible: kind === "people" && root.selectedIds.length > 0
+                text: I18n.tr("已选 ") + root.selectedIds.length + I18n.tr(" 个人物")
+                font.family: Theme.fontFamily
+                font.pixelSize: 12
+                color: Theme.primary
+            }
+                }
+            }
+
             Text {
                 text: root.hint
                 Layout.alignment: Qt.AlignVCenter
@@ -259,111 +361,7 @@ Item {
             }
         }
 
-        /* 批量合并条：进入多选模式后常驻占位（0.5.41），避免勾选第二个头像时列表跳动。
-           0.6.23：外层 Row→RowLayout——positioner 里 Layout.fillHeight 无效，
-           内层 Rectangle 高度 0、内容溢出（与 TagTreePage 同款修复） */
-        RowLayout {
-            id: batchBar
-            Layout.fillWidth: true
-            Layout.preferredHeight: 40
-            /* 0.6.23：上限锁 40——内层 fillHeight 会把整行撑到数百像素 */
-            Layout.maximumHeight: 40
-            Layout.leftMargin: Theme.spacingMedium
-            Layout.rightMargin: Theme.spacingMedium
-            visible: root._batchMode
-            spacing: 8
-            Rectangle {
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                radius: Theme.radiusMedium
-                color: Theme.surface
-                border.width: 1
-                border.color: Theme.primary
-                /* 0.6.21：普通 Row 中 Layout.fillWidth 无效导致按钮不靠右
-                   （错位），改 RowLayout；勾选 1 个人物时提供锚点扫描入口 */
-                RowLayout {
-                    anchors.fill: parent
-                    anchors.leftMargin: Theme.spacingMedium
-                    anchors.rightMargin: Theme.spacingMedium
-                    spacing: 8
-                    visible: root.selectedIds.length >= 1
-                    Text {
-                        Layout.alignment: Qt.AlignVCenter
-                        text: I18n.tr("已选 ") + root.selectedIds.length + I18n.tr(" 个人物")
-                        font.family: Theme.fontFamily
-                        font.pixelSize: 12
-                        color: Theme.text
-                    }
-                    Item { Layout.fillWidth: true }
-                    PMButton {
-                        objectName: "categoryDupForBtn"
-                        visible: root.selectedIds.length === 1
-                        tooltip: I18n.tr("以选中人物为基准，扫描其余未命名人物中可能是同一人的组合（轻量，只与这一个人比较）")
-                        text: I18n.tr("查找疑似重复")
-                        height: 26
-                        Layout.alignment: Qt.AlignVCenter
-                        onClicked: root.dupForRequested(root.selectedIds[0])
-                    }
-                    PMButton {
-                        objectName: "categoryBatchMergeBtn"
-                        visible: root.selectedIds.length >= 2
-                        tooltip: I18n.tr("把勾选的人物合并到第一个（照片归属一并转移）")
-                        text: I18n.tr("合并选中（") + root.selectedIds.length + I18n.tr(" 个）")
-                        height: 26
-                        Layout.alignment: Qt.AlignVCenter
-                        onClicked: root.batchMergeRequested(root.selectedIds)
-                    }
-                    PMButton {
-                        id: batchDeleteBtn
-                        visible: root.selectedIds.length >= 2
-                        objectName: "categoryBatchDeleteBtn"
-                        tooltip: I18n.tr("删除选中的人物：人脸回归未指派（可重新聚类或手动指派），照片不受影响")
-                        text: root._confirmDelete
-                              ? I18n.tr("确认删除（") + root.selectedIds.length + I18n.tr(" 个）？")
-                              : I18n.tr("删除选中人物")
-                        height: 26
-                        emphasized: root._confirmDelete
-                        Layout.alignment: Qt.AlignVCenter
-                        onClicked: {
-                            if (!root._confirmDelete) {
-                                root._confirmDelete = true
-                                delReset.restart()
-                                return
-                            }
-                            root._confirmDelete = false
-                            delReset.stop()
-                            var n = LibraryBridge.deletePersons(root.selectedIds)
-                            root.selectedIds = []
-                            root.updateBatchBar()
-                            root.refresh()
-                        }
-                        Timer {
-                            id: delReset
-                            interval: 4000
-                            onTriggered: root._confirmDelete = false
-                        }
-                    }
-                    PMButton {
-                        objectName: "categoryBatchClearBtn"
-                        tooltip: I18n.tr("清空多选勾选")
-                        text: I18n.tr("取消")
-                        width: 64
-                        height: 26
-                        Layout.alignment: Qt.AlignVCenter
-                        onClicked: { root.selectedIds = []; root.updateBatchBar() }
-                    }
-                }
-                Text {
-                    anchors.centerIn: parent
-                    visible: root.selectedIds.length === 0
-                    text: I18n.tr("勾选人物：1 个可查找疑似重复，2 个以上可批量合并 / 转移")
-                    font.family: Theme.fontFamily
-                    font.pixelSize: 12
-                    color: Theme.textDim
-                }
-            }
-        }
-
+        /* 0.6.29：原第二行「批量合并条」已并入顶栏按钮行（见上方五按钮组，0.6.29 补删「取消选择」） */
         Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true

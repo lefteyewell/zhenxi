@@ -353,7 +353,8 @@ class TestDupPersons(_TempDB):
         pair = cands[0]
         self.assertEqual({pair["a"], pair["b"]}, {pa, pb})
         self.assertEqual(pair["sim"], 42)
-        self.assertGreaterEqual(pair["aCount"], pair["bCount"])
+        # 0.6.28 方向修正：b = 合并保留方（照片数多的一方）
+        self.assertLessEqual(pair["aCount"], pair["bCount"])
         self.assertTrue(pair["aName"] and pair["bName"])
         # 已命名人物不参与
         self.assertTrue(self.bridge.renamePerson(pc, "有名字的人"))
@@ -382,6 +383,51 @@ class TestDupPersons(_TempDB):
         self.assertEqual(self.bridge.mergePersons(pa, pb), 1)
         self.assertEqual(self.bridge.dupCandidates(), [],
                          "引用已删除 src 的候选应被清掉")
+
+    def test_merge_direction_keeps_larger(self):
+        """0.6.28 方向修正：默认合并保留照片数多的一方（此前写反成保留少的）。"""
+        pa = self._add_person_with_faces(self._v(1.0), self.pids[:2])    # 2 张
+        pb = self._add_person_with_faces(self._v(0.42), self.pids[:4])   # 4 张
+        self.bridge._dup_scan_now()
+        it = self.bridge.dupCandidates()[0]
+        self.assertEqual((it["a"], it["b"]), (pa, pb),
+                         "a=照片少的被并入方，b=照片多的保留方")
+        self.assertEqual(self.bridge.mergePersons(it["a"], it["b"]), 1)
+        row = self.db.conn.execute(
+            "SELECT face_count FROM persons WHERE id=?", (pb,)).fetchone()
+        self.assertIsNotNone(row, "保留方应为照片多的人物 pb")
+        self.assertEqual(row[0], 6, "合并后保留方应有全部 6 张脸")
+        self.assertIsNone(self.db.conn.execute(
+            "SELECT 1 FROM persons WHERE id=?", (pa,)).fetchone())
+
+    def test_merge_direction_named_wins(self):
+        """0.6.28：恰有一方已命名时并入该方（无论照片数多少）。"""
+        pa = self._add_person_with_faces(self._v(1.0), self.pids[:2])    # 2 张
+        pb = self._add_person_with_faces(self._v(0.42), self.pids[:4])   # 4 张
+        self.assertTrue(self.bridge.renamePerson(pa, "王老师"))
+        # 全库扫描只比未命名人物，锚点扫描含已命名对手——用 pb 做锚点；
+        # 默认视图按"双方未命名"过滤，锚点视图才放宽（与弹窗行为一致）
+        self.assertEqual(self.bridge._dup_scan_anchor(pb), 1)
+        it = self.bridge._dup_candidates_impl(self.db.conn, pb)[0]
+        self.assertEqual(it["b"], pa, "已命名的一方应成为保留方(dst)")
+        self.assertEqual(it["a"], pb)
+        self.assertEqual(self.bridge.mergePersons(it["a"], it["b"]), 1)
+        row = self.db.conn.execute(
+            "SELECT name, face_count FROM persons WHERE id=?", (pa,)).fetchone()
+        self.assertIsNotNone(row, "保留方应为已命名人物 pa（即使照片少）")
+        self.assertEqual(row[0], "王老师")
+        self.assertEqual(row[1], 6)
+
+    def test_merge_people_named_dst(self):
+        """0.6.28：批量合并恰有一个已命名人物时并入该方（不再固定第一个）。"""
+        pa = self._add_person_with_faces(self._v(1.0), self.pids[:2])
+        pb = self._add_person_with_faces(self._v(0.9), self.pids[:2])
+        pc = self._add_person_with_faces(self._v(0.42), self.pids[:4])
+        self.assertTrue(self.bridge.renamePerson(pc, "李教练"))
+        self.assertEqual(self.bridge.mergePeople([pa, pb, pc]), 2)
+        survived = [r[0] for r in self.db.conn.execute(
+            "SELECT id FROM persons WHERE id IN (?,?,?)", (pa, pb, pc))]
+        self.assertEqual(survived, [pc], "保留方应为已命名人物 pc")
 
     def test_anchor_scan_per_person(self):
         """0.6.21 两步式：以单个人物为锚点扫疑似重复。"""
@@ -506,6 +552,30 @@ class TestDupPersons(_TempDB):
         self.assertEqual(self.bridge._dup_scan_anchor(pa), 1)
         self.assertTrue(events, "锚点扫描同样应发射进度")
         self.assertEqual(events[-1][0], events[-1][1], "结束时 done == total")
+
+    def test_dup_candidates_pending_not_dropped(self):
+        """0.6.28：候选加载单飞行期间的新请求入 pending 队列（不再丢弃）。
+
+        真机反馈：合并/忽略后紧接着的 reload 被单飞行丢掉，弹窗里的行
+        不消失、计数不更新。"""
+        self.bridge._dup_cand_running = True
+        self.bridge._dup_cand_pending = None
+        try:
+            self.bridge.dupCandidatesAsync(3)
+            self.assertEqual(self.bridge._dup_cand_pending, 3,
+                             "飞行中的 reload 请求应缓存而非丢弃")
+            self.assertTrue(self.bridge._dup_cand_running,
+                            "飞行状态不变（未启动第二个线程）")
+        finally:
+            self.bridge._dup_cand_running = False
+            self.bridge._dup_cand_pending = None
+
+    def test_dup_scan_status_reports_progress(self):
+        """0.6.28：dupScanStatus 带最近进度——弹窗晚开也能立即显示计数。"""
+        self.bridge._dup_scan_progress = (7, 10)
+        st = self.bridge.dupScanStatus()
+        self.assertEqual((st["done"], st["total"]), (7, 10))
+        self.assertIn("running", st)
 
 
 class TestFaceSearchViews(_TempDB):

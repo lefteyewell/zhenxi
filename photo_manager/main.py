@@ -94,8 +94,11 @@ class TrayController(QObject):
     @Slot()
     def notifyHidden(self) -> None:
         if self._tray is not None:
+            # 0.6.28：第三位置参数是 icon 而非 msecs——传 int 会让 PySide6 报
+            # TypeError 且气泡从未弹出；显式给 MessageIcon，时长走 msecs=
             self._tray.showMessage(APP_NAME, _tr("已最小化到托盘，双击图标恢复窗口"),
-                                   3000)
+                                   QSystemTrayIcon.MessageIcon.Information,
+                                   msecs=3000)
 
     @Slot()
     def requestQuit(self) -> None:

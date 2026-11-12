@@ -60,11 +60,21 @@ Dialog {
     onOpened: {
         /* 0.6.21：不再自动开全库扫描（真机反馈资源不可预期）——
            扫描由入口显式触发（人物页「查找疑似重复」锚点扫 / 本弹窗
-           「全库扫描」按钮），这里只反映状态 + 拉候选 */
+           「全库扫描」按钮），这里只反映状态 + 拉候选
+           0.6.28：扫描中不再显示上次的候选列表（真机反馈"看到旧结果
+           分不清本次有没有在扫"）——清空列表、立即显示已存进度 */
         var s = _status()
         scanBusy = s.running === true
-        countText.text = I18n.tr("加载中…")
-        reload()
+        if (scanBusy) {
+            pairModel.clear()
+            var d = s.done || 0, t = s.total || 0
+            countText.text = d >= t && t > 0
+                ? I18n.tr("全部对比完毕（") + t + I18n.tr(" 张人脸），正在汇总…")
+                : I18n.tr("已对比 ") + d + " / " + Math.max(t, 1) + I18n.tr(" 张人脸")
+        } else {
+            countText.text = I18n.tr("加载中…")
+            reload()
+        }
     }
 
     /* 扫描在后台跑：完成信号到达时（弹窗开着就）刷新列表 */
@@ -176,6 +186,8 @@ Dialog {
                 onClicked: {
                     root.anchorPid = 0
                     root.scanBusy = true
+                    /* 0.6.28：开扫即清旧列表——不再让上次结果显示在本次扫描期间 */
+                    pairModel.clear()
                     countText.text = I18n.tr("扫描中…")
                     LibraryBridge.dupScanStart()
                 }
@@ -192,7 +204,9 @@ Dialog {
             Layout.fillWidth: true
             Layout.leftMargin: Theme.spacingMedium
             Layout.rightMargin: Theme.spacingMedium
-            text: I18n.tr("相似度在聚类阈值边缘、可能是同一个人的未命名人物组合。合并会把照片少的一方并入照片多的一方（只改归属标签，照片不受影响）。")
+            text: I18n.tr("相似度在聚类阈值边缘、可能是同一个人的未命名人物组合。"
+                          + "合并方向：一方已命名（改过名）时并入该方，"
+                          + "否则并入照片数多的一方（只改归属标签，照片不受影响）。")
             font.family: Theme.fontFamily
             font.pixelSize: 11
             color: Theme.textDim
@@ -332,7 +346,7 @@ Dialog {
                             text: I18n.tr("合并 →")
                             width: 84
                             height: 30
-                            tooltip: I18n.tr("把左侧人物并入右侧（照片数多的一方）")
+                            tooltip: I18n.tr("把左侧人物并入右侧（已命名或照片数多的一方，保留该方名称）")
                             onClicked: {
                                 var n = LibraryBridge.mergePersons(model.a, model.b)
                                 if (n > 0) {
@@ -342,6 +356,17 @@ Dialog {
                                         root.anchorPid = 0
                                     root.messageRequested(
                                         I18n.tr("已合并：") + model.aName + " → " + model.bName, "success")
+                                    /* 0.6.28：乐观移除本行——合并立即从列表消失、
+                                       计数跟着减（后台 reload 随后同步权威数据）；
+                                       此前只靠异步 reload，单飞行丢请求时行不消失，
+                                       用户不知道合并是否成功（真机反馈） */
+                                    var idx = index
+                                    Qt.callLater(function() {
+                                        pairModel.remove(idx, 1)
+                                        if (pairModel.count === 0)
+                                            countText.text = root.scanBusy
+                                                ? I18n.tr("扫描中…") : I18n.tr("暂无候选")
+                                    })
                                     root.reload()
                                 } else {
                                     root.messageRequested(I18n.tr("合并失败"), "warning")
@@ -356,6 +381,14 @@ Dialog {
                             tooltip: I18n.tr("不再提示这一对（重新扫描也会跳过）")
                             onClicked: {
                                 LibraryBridge.dupIgnore(model.a, model.b)
+                                /* 0.6.28：同合并——乐观移除 + reload 同步 */
+                                var idx = index
+                                Qt.callLater(function() {
+                                    pairModel.remove(idx, 1)
+                                    if (pairModel.count === 0)
+                                        countText.text = root.scanBusy
+                                            ? I18n.tr("扫描中…") : I18n.tr("暂无候选")
+                                })
                                 root.reload()
                             }
                         }

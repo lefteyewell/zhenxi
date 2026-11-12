@@ -5,40 +5,43 @@ EXIF / folders / arbitrary combinations), thumbnails and full-size viewing,
 batch export at common resolutions — **the app never deletes or modifies your original
 files**.
 
-## Latest release v0.6.27 (2026-11-11)
+## Latest release v0.6.29 (2026-11-12)
 
 > 📥 Download: [Releases page](https://github.com/lefteyewell/zhenxi/releases) ｜
 > 📋 All version changes: [CHANGELOG.md](CHANGELOG.md)
 
-This release brings the fixes added after 0.6.26 into the published packages (the online v0.6.26 packages do not contain them). See CHANGELOG for details.
-
 **Fixed**
 
-- **Group view toggle did nothing in person view** - after opening a person's photo list, folder grouping now works just like in the all-photos view
-- **Some checkmarks were still rendered as radical signs** (visible on Kylin's minimal fonts) - 4 places replaced with canvas-drawn vector checkmarks, no font dependency
-- **"No results" in the duplicate-persons dialog** when the anchor person was already named - anchor mode now relaxes that filter and shows real names
-- **Duplicate scan progress shown as a counter inside the dialog** - live "Compared N / M faces" until complete, replacing the taskbar progress bar
-- **Sorting did nothing on the people page** - sorting now happens before pagination (natural name order, count order), so loaded pages follow it
-- **Face labels sometimes showed only "Person" without a number** - legacy string IDs are normalized before the name lookup
+- **The tray bubble message never appeared** - the call passed the display duration into the icon parameter slot, raising a silent TypeError; fixed, the "minimized to tray" message now shows properly
+- **Deleting a person now needs just one checkbox** - previously required 2 or more; deleting a person only removes face ownership, photos are untouched (confirmation step kept)
+- **Filter → All inside a person's photo list no longer jumps back to all photos** - it stays within the person and reloads that person's full photo list
 
 **Improved**
 
-- **"Find likely duplicates" for a selected person now compares against all people, including named ones** - previously it only compared unnamed ones, which almost always returned nothing late in a cleanup; full-library scan scope is unchanged
+- **The About dialog now mentions GPLv3 only once** - the copyright line is simplified and the warranty line just points to Help → Open-source license
+- **Cleaner people-page top bar** - the "Clear selection" button is gone (Select itself toggles the mode); buttons are left-aligned with an always-visible horizontal scrollbar when the window is too narrow
+- **26 missing English UI strings added** - full scan of 1544 translation literals with zero misses (duplicate-persons dialog, settings descriptions, count fragments, etc.)
 
 <details>
-<summary>Previous release v0.6.26 (2026-11-10) summary</summary>
+<summary>Previous release v0.6.28 (2026-11-12) summary</summary>
 
 **Fixed**
 
-- **Kylin: selected badges stuck on thumbnails and clicks gave no visual feedback** - caused by a missing `selected` role under Qt 6.8; strict boolean comparisons plus C++ `setProperty` writes fix the root cause
-- **All QML anchors-in-layout warnings removed** (9 layout-managed rows)
-- **Statistics page scrollbars no longer cover numbers** (5 lists)
-- **"Find similar photos" renamed "Find semantically similar photos"** to distinguish it from perceptual-hash duplicate detection
-- **Empty video duration became `undefined` on Qt 6.8** - now sent as 0, removing per-row ListModel warnings
+- **Tapping "Stack view" on a person's photo list then leaving it always jumped back to "All photos"** - exiting stacks now returns to the view you came from (e.g. the person list), keeping the original behavior only for the all-photos entry
+- **Face clustering similarity threshold actually defaulted to 0.50** - 0.6.9 intended to raise it to 0.60 but the settings reader kept the old default, so users who never touched the slider clustered at 0.50 (too loose, prone to merging different people); now unified at 0.60 - users with a manually saved value are unaffected
+- **The About dialog's license pointer pointed at itself** - now points to Help → Open-source license (GPLv3) and the duplicate LICENSE sentence was removed
+- **Duplicate-persons dialog merged in the wrong direction** (hidden bug since 0.6.20) - now keeps the side with more photos
+- **Merged/ignored rows stayed in the duplicate dialog** - rows now disappear immediately with the count synced; refresh requests are queued instead of dropped
+- **The dialog showed the previous scan's results** - the old list is cleared when a scan starts, with a live "Compared N / M faces" counter
 
 **Improved**
 
-- **Duplicate-persons workflow** - visible scan progress, batch merge clears candidate pairs, and person-scoped search shows only related candidates (filter can be cleared)
+- **Empty stack view now shows guidance** - hints to run "Detect photo stacks" in the Tools Center
+- **Face-detection completion message now uses a "re-scan pending photos" wording** - avoids being misread as a full-library rescan
+- **Threshold description highlights "Face clustering"** - bolded with a note that it is not "Face recognition"; the suggested value is now 0.6
+- **People-page action buttons merged into one top-bar row** - fixed row with disabled states and a context-aware duplicate scan button
+- **Photo thumbnails show only the file name** - the date/time prefix was removed; shooting time is still in the info panel
+- **Merging prefers user-renamed names** - if exactly one side was renamed, it absorbs the other and keeps its name regardless of photo counts
 
 </details>
 

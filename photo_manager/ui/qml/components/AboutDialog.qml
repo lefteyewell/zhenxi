@@ -121,11 +121,16 @@ Popup {
                 font.pixelSize: 11
                 color: Theme.textDim
             }
+            /* 0.6.28：删去「许可证全文见随附 LICENSE 文件」——帮助菜单的
+               「开源许可 (GPLv3)」条目显示的就是随包 LICENSE 文件全文，
+               上方版权行的「见 帮助 → 开源许可 (GPLv3)」已指向同一内容，
+               同弹窗内不再重复表述 */
+            /* 0.6.29：整弹窗 GPLv3 只保留版权行一处；本行只作担保声明 +
+               指引，不再重复许可名（真机反馈一行内 GPLv3 出现两次） */
             Text {
                 Layout.alignment: Qt.AlignHCenter
                 Layout.topMargin: 4
-                text: I18n.tr("本软件为自由软件，以 GNU GPLv3 发布；<br/>")
-                      + I18n.tr("不提供任何担保。许可证全文见随附 LICENSE 文件。")
+                text: I18n.tr("本程序为自由软件，不提供任何担保；许可证全文见「帮助 → 开源许可」。")
                 font.family: Theme.fontFamily
                 font.pixelSize: 10
                 color: Theme.textDim
