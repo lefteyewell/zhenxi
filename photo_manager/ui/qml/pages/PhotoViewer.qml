@@ -617,10 +617,13 @@ Window {
             }
             PMButton {
                 objectName: "viewerOriginal"
-                text: I18n.tr("1:1 原始")
+                text: I18n.tr("大分辨率")
                 width: 88
                 height: 28
-                tooltip: I18n.tr("按原始分辨率显示（1 图像像素 = 1 屏幕像素）")
+                /* 0.6.32b：原名「1:1 原始」会让人以为看到的是传感器原始分辨率；
+                   实际上相机 RAW、HEIC 等非 Qt 原生格式的查看图是 ≤1920px 的
+                   解码预览（普通 JPG/PNG 才是原文件），气泡如实说明。 */
+                tooltip: I18n.tr("按 100% 比例显示（1 图像像素 = 1 屏幕像素）；相机 RAW、HEIC 等格式显示的是最长边 1920px 的解码预览图，放大后的清晰度以预览图为准")
                 onClicked: root._original()
             }
             PMButton {

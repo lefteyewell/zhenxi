@@ -21,6 +21,7 @@
 """
 from __future__ import annotations
 
+import json
 import logging
 import sqlite3
 import time
@@ -30,6 +31,19 @@ from photo_manager.core.backup import backup_db
 from photo_manager.core.db import Database
 
 log = logging.getLogger(__name__)
+
+
+def _bbox_numbers(raw) -> list[float] | None:
+    """取 bbox 前 4 个数值（容忍 JSON 数组 / 逗号分隔串 / 末尾新增尺寸项）。"""
+    try:
+        vals = json.loads(raw)
+    except Exception:
+        vals = str(raw).strip("[]() ").split(",")
+    try:
+        return [round(float(v), 3) for v in list(vals)[:4]]
+    except Exception:
+        return None
+
 
 EXPORT_SCHEMA = """
 CREATE TABLE IF NOT EXISTS persons (
@@ -165,6 +179,20 @@ class MetadataSync:
                         " WHERE p.file_path = ? AND f.bbox = ?",
                         (pname, path, bbox),
                     ).fetchone()
+                    if not row:
+                        # 0.6.31：faces.bbox 由 4 元素改为 6 元素（末尾两项是
+                        # 检测图尺寸）。新旧版导出的元数据包混用时，按前 4 个
+                        # 数值匹配，避免人物归属整体丢失。
+                        key = _bbox_numbers(bbox)
+                        if key:
+                            for fid, fbbox, peid in c.execute(
+                                "SELECT f.id, f.bbox, pe.id FROM faces f"
+                                " JOIN photos p ON p.id = f.photo_id"
+                                " LEFT JOIN persons pe ON pe.name = ?"
+                                " WHERE p.file_path = ?", (pname, path)):
+                                if _bbox_numbers(fbbox) == key:
+                                    row = (fid, peid)
+                                    break
                     if row:
                         c.execute("UPDATE faces SET person_id=? WHERE id=?", (row[1], row[0]))
                         stats["matched_faces"] += 1

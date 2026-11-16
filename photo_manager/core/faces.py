@@ -28,6 +28,7 @@ from typing import Callable
 
 import numpy as np
 
+from photo_manager.core import rawio
 from photo_manager.core.db import Database
 from photo_manager.core.system import analysis_workers, max_dim
 
@@ -37,16 +38,40 @@ _worker = None
 
 
 def _exif_orientation(path: str) -> int:
-    """读取 EXIF Orientation（0x0112），失败或缺失返回 1。"""
-    try:
-        from PIL import Image  # noqa: PLC0415
+    """读取 EXIF Orientation（0x0112），失败或缺失返回 1。
 
-        with Image.open(path) as im:
-            return int(im.getexif().get(0x0112, 1))
-    except Exception:
-        return 1
+    RAW 修复：委托 rawio —— Pillow 打不开相机 RAW，此前 RAW 恒返回 1，
+    竖拍 RAW 的人脸框会与转正后的图错位。"""
+    return rawio.orientation(path)
 
 MAX_DIM = max_dim()  # 人脸检测前图像最长边上限（像素）
+
+
+def parse_face_bbox(raw, width: int, height: int) -> tuple[float, ...]:
+    """解析 faces.bbox → (bx, by, bw, bh, ref_w, ref_h)。
+
+    0.6.31 起 bbox 存 6 元素 [x, y, w, h, 检测图宽, 检测图高]：后两项是
+    bbox 的坐标基准（检测时实际图像的尺寸，已含 EXIF 转正与 MAX_DIM 缩放）。
+    相机 RAW 的检测图来自内嵌 JPEG 预览 / half_size 后处理，而 0.6.30 起
+    photos.width/height 记的是 LibRaw 传感器尺寸（6000×4000 级），两者差
+    数倍且竖拍还会宽高互换；按库内尺寸推算基准会把人脸框整体放错位置。
+
+    历史数据（含 0.6.30）只有 4 元素：沿用旧口径，由 photos.width/height
+    按 MAX_DIM 缩放推算基准，保证老库显示行为不变。另见
+    core/db.py::_migrate_face_bbox_state：RAW 的历史框无法反算，首启自动
+    作废一次让人脸检测重跑。
+    """
+    vals = [float(v) for v in (json.loads(raw) if isinstance(raw, (str, bytes))
+                              else raw)]
+    if len(vals) < 4:
+        raise ValueError("faces.bbox 元素不足")
+    bx, by, bw, bh = vals[:4]
+    if len(vals) >= 6 and vals[4] > 0 and vals[5] > 0:
+        return bx, by, bw, bh, vals[4], vals[5]
+    m = max(height, width)
+    scale = min(1.0, MAX_DIM / m) if m > 0 else 1.0
+    return (bx, by, bw, bh,
+            max(1, round(width * scale)), max(1, round(height * scale)))
 
 
 def _init_worker(models_dir: str) -> None:
@@ -109,22 +134,27 @@ class FaceService:
         先按 MAX_DIM 限制最长边（大图检测内存可控，特征由统一缩放保证一致性）。"""
         import cv2  # noqa: PLC0415
 
-        img = cv2.imdecode(np.fromfile(img_path, dtype=np.uint8), cv2.IMREAD_COLOR)
-        if img is None:
-            raise ValueError(f"无法读取图片: {img_path}")
+        # RAW 修复：相机 RAW 由 rawio 解码（cv2 读不了 / 只读出百像素内嵌缩略图）。
+        # 普通图片仍走 np.fromfile + imdecode，行为不变。
+        img = rawio.read_bgr(img_path)
         # Windows 上 imdecode 不应用 EXIF 旋转，竖拍照片需手动转正，
         # 否则 bbox 坐标与缩略图（PIL 已 exif_transpose）不对应、特征不准。
-        img = self._apply_orientation(img, _exif_orientation(img_path))
+        img = _rotate_image(img, _exif_orientation(img_path))
         h, w = img.shape[:2]
         scale = min(1.0, MAX_DIM / max(h, w))
         if scale < 1.0:
             img = cv2.resize(img, (int(w * scale), int(h * scale)),
                              interpolation=cv2.INTER_AREA)
+        # 0.6.31：bbox 必须自带「检测图尺寸」作为坐标基准。RAW 检测图来自
+        # 内嵌预览/半尺寸图，与 photos.width/height（传感器尺寸）不是同一套
+        # 坐标；界面按库内尺寸归一化会把人脸框整体放错。存成 6 元素后，
+        # parse_face_bbox 可直接用 dw/dh 归一化，历史 4 元素数据仍走旧口径。
+        dh, dw = img.shape[:2]
         out = []
         for face in self.detect(img):
             feat = self.feature(img, face)
             out.append({
-                "bbox": face["bbox"],
+                "bbox": face["bbox"] + [float(dw), float(dh)],
                 "score": face["score"],
                 "descriptor": feat.astype(np.float32).tobytes(),
             })
@@ -132,24 +162,35 @@ class FaceService:
 
     @staticmethod
     def _apply_orientation(img: np.ndarray, orientation: int) -> np.ndarray:
-        import cv2  # noqa: PLC0415
+        return _rotate_image(img, orientation)
 
-        if orientation == 3:
-            return cv2.rotate(img, cv2.ROTATE_180)
-        if orientation == 6:
-            return cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE)
-        if orientation == 8:
-            return cv2.rotate(img, cv2.ROTATE_90_COUNTERCLOCKWISE)
-        return img
+
+def _rotate_image(img: np.ndarray, orientation: int) -> np.ndarray:
+    """按 EXIF Orientation 转正（模块级，供 _read_image 与 FaceService 共用）。
+
+    独立成函数而不是只留静态方法：search_by_face 等测试会把 FaceService
+    替换成替身类，模块级函数不依赖具体类，替身也能正常走读图链路。"""
+    import cv2  # noqa: PLC0415
+
+    if orientation == 3:
+        return cv2.rotate(img, cv2.ROTATE_180)
+    if orientation == 6:
+        return cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE)
+    if orientation == 8:
+        return cv2.rotate(img, cv2.ROTATE_90_COUNTERCLOCKWISE)
+    return img
 
 
 def _read_image(img_path: str) -> np.ndarray:
-    """读图（cv2 读不了中文路径，np.fromfile+imdecode），按 MAX_DIM 缩放。"""
+    """读图（含相机 RAW，见 rawio），转正后按 MAX_DIM 缩放。
+
+    RAW 修复：以图搜人 / 人脸清理缓存等路径此前同样漏了 RAW。
+    0.6.31：与 FaceService.process_image 保持同一套「先 EXIF 转正再缩放」
+    顺序，否则用归一化 bbox 从本图裁剪时会因宽高互换而错位。"""
     import cv2  # noqa: PLC0415
 
-    img = cv2.imdecode(np.fromfile(img_path, dtype=np.uint8), cv2.IMREAD_COLOR)
-    if img is None:
-        raise ValueError(f"无法读取图片: {img_path}")
+    img = _rotate_image(
+        rawio.read_bgr(img_path), _exif_orientation(img_path))
     h, w = img.shape[:2]
     scale = min(1.0, MAX_DIM / max(h, w))
     if scale < 1.0:
@@ -318,7 +359,6 @@ def backfill_face_blur(db: Database, progress_cb=None,
     force=True 时重评全部（算法升级后刷新旧分数用），否则只补 blur IS NULL。
     """
     import cv2  # noqa: PLC0415
-    import json  # noqa: PLC0415
     import sqlite3  # noqa: PLC0415
 
     conn = sqlite3.connect(db.path, timeout=10)
@@ -348,8 +388,12 @@ def backfill_face_blur(db: Database, progress_cb=None,
             idx = -1
             if cache_img is not None:
                 try:
-                    bx, by, bw, bh = (float(v) for v in json.loads(bbox_json))
                     h, w = cache_img.shape[:2]
+                    # 0.6.31：bbox 自带检测图尺寸（6 元素）；按归一化坐标
+                    # 还原到当前解码图像素，兼容历史 4 元素数据。
+                    bx, by, bw, bh, rw, rh = parse_face_bbox(bbox_json, w, h)
+                    nx, ny, nw, nh = bx / rw, by / rh, bw / rw, bh / rh
+                    bx, by, bw, bh = nx * w, ny * h, nw * w, nh * h
                     mx, my = bw * 0.15, bh * 0.15
                     x1, y1 = max(0, int(bx - mx)), max(0, int(by - my))
                     x2, y2 = min(w, int(bx + bw + mx)), min(h, int(by + bh + my))
@@ -379,6 +423,31 @@ class FacePipeline:
     def __init__(self, db: Database, models_dir: str | Path):
         self.db = db
         self.models_dir = str(models_dir)
+
+    @staticmethod
+    def _restore_face_name(conn, photo_id: int) -> None:
+        """0.6.31：RAW 人脸框迁移删掉旧 faces 行前，把用户命名备份在
+        face_name_backup。重跑检测写完新脸后按照片还原人物归属，随后由
+        FaceClusterer 按脸 id 继承名字，避免「只在这批 RAW 上出现过」的
+        人物名被整库重建时抹掉。表不存在（新库）时直接跳过。"""
+        try:
+            row = conn.execute(
+                "SELECT person_name FROM face_name_backup WHERE photo_id=?",
+                (photo_id,)).fetchone()
+        except Exception:
+            return
+        if not row:
+            return
+        name = row[0]
+        prow = conn.execute("SELECT id FROM persons WHERE name=?", (name,)).fetchone()
+        if prow:
+            person_id = prow[0]
+        else:
+            person_id = conn.execute(
+                "INSERT INTO persons(name) VALUES (?)", (name,)).lastrowid
+        conn.execute("UPDATE faces SET person_id=? WHERE photo_id=?",
+                     (person_id, photo_id))
+        conn.execute("DELETE FROM face_name_backup WHERE photo_id=?", (photo_id,))
 
     def run(self, limit: int | None = None, workers: int = 0,
             progress_cb: Callable[[int, int, str], None] | None = None,
@@ -452,6 +521,7 @@ class FacePipeline:
                             conn.execute("UPDATE photos SET face_count=? WHERE id=?", (len(detections), pid))
                             stats["with_faces"] += 1
                             stats["faces"] += len(detections)
+                        self._restore_face_name(conn, pid)
                         conn.execute("UPDATE photos SET face_done=1 WHERE id=?", (pid,))
                     except Exception as e:
                         stats["failed"] += 1

@@ -23,6 +23,8 @@ from pathlib import Path
 
 from PIL import Image, ImageOps
 
+from photo_manager.core import rawio
+
 log = logging.getLogger(__name__)
 
 # 0.5.43：注册现代图像编解码插件（导入副作用即登记进 Pillow 的全局解码器表）。
@@ -406,7 +408,15 @@ def extract_metadata(file_path: str | Path) -> dict:
             if meta.get(k) is None and v is not None:
                 meta[k] = v
 
-    if meta["width"] is None or meta["width"] == 0:
+    # RAW 修复：相机 RAW 一律用 LibRaw 的真实传感器尺寸覆盖 Pillow 的值。
+    # CR2/NEF 等 TIFF 系 RAW 能被 Pillow 打开，但 im.size 是**内嵌缩略图**
+    # （实测 128×96 / 160×120），此前直接入库导致照片信息尺寸错误、
+    # 人脸 bbox 的坐标基准也被带偏；其余 RAW 走原来的 None 兜底分支。
+    # 0.6.32：TIFF 容器型相机 RAW（.tif/.tiff 装传感器数据）同理——
+    # Pillow 读到的是内嵌缩略图尺寸，按内容嗅探命中后用 LibRaw 尺寸覆盖。
+    if (Path(p).suffix.lower() in _RAW_EXTS
+            or rawio.is_container_raw(p)
+            or meta["width"] is None or meta["width"] == 0):
         try:
             import rawpy  # noqa: PLC0415
 
@@ -521,7 +531,10 @@ def make_preview_ex(file_path: str | Path, out_path: str | Path,
     state = "ok"
     small_emb = None  # 0.5.64：内嵌 JPEG 兜底（<1024px 也好过空白）
     try:
-        if ext in _RAW_EXTS:
+        # 0.6.32：TIFF 容器型相机 RAW 走与 RAW 相同的 LibRaw 分层——
+        # Pillow 只能解出百像素级内嵌缩略图（预览特小的根源）甚至解不出。
+        # 容器分支里的内嵌预览会按其自带 EXIF exif_transpose（与 RAW 一致）。
+        if ext in _RAW_EXTS or rawio.is_container_raw(p):
             import rawpy  # noqa: PLC0415
 
             with rawpy.imread(p) as raw:
@@ -643,7 +656,10 @@ def make_thumbnail(file_path: str | Path, out_path: str | Path) -> tuple[int, in
     try:
         if is_video(p):
             return make_video_thumbnail(p, out_path)
-        if ext in _RAW_EXTS:
+        # 0.6.32：TIFF 容器型相机 RAW 与 RAW 同层——Pillow 只能解出百像素级
+        # 内嵌缩略图（缩略图特小的根源）甚至解不出；分支内已按内嵌预览自带
+        # EXIF exif_transpose，方向正确。
+        if ext in _RAW_EXTS or rawio.is_container_raw(p):
             import rawpy  # noqa: PLC0415
 
             try:

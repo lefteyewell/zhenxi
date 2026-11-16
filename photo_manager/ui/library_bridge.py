@@ -22,7 +22,7 @@ from photo_manager import models_dir
 from photo_manager.core.db import Database
 from photo_manager.core.extractor import QT_NATIVE_EXTS as _QT_NATIVE_EXTS
 from photo_manager.core.search import PhotoSearch
-from photo_manager.core.faces import MAX_DIM
+from photo_manager.core.faces import parse_face_bbox
 
 log = logging.getLogger(__name__)
 
@@ -555,6 +555,8 @@ class LibraryBridge(QObject):
 
         bbox 是检测缩放图（最长边 ≤ MAX_DIM）坐标，与 photoFaces 同一套归一化
         口径；归一化坐标与分辨率无关，可直接映射到缩略图或原图像素。
+        0.6.31：归一化基准改用 bbox 自带的检测图尺寸（faces.parse_face_bbox），
+        RAW / 竖拍照片不再因 photos.width/height 口径不同而整体错位。
 
         0.6.18：缓存按**人物**而不是按脸（每个人物只有代表头像一张，
         7.8 万脸的库从 ~2GB 降到人数×12KB）；优先 data/face_crops 高质量
@@ -562,21 +564,16 @@ class LibraryBridge(QObject):
         队列从原图构建——每个人物只解码一次原图，此后永久走缓存。
         cached=False（头像管理网格逐脸展示）：跳过人物缓存，只用缩略图
         裁剪——每张脸一张缓存会让缓存膨胀 2GB 级。"""
-        import json
-
         if not row:
             return None
         face_id, bbox, fpath, tpath, w, h, tw, th = row
         if not (w and h):
             return None
         try:
-            bx, by, bw, bh = json.loads(bbox)
+            bx, by, bw, bh, rw, rh = parse_face_bbox(bbox, w, h)
         except Exception:
             return None
-        scale = min(1.0, MAX_DIM / max(h, w)) if max(h, w) > 0 else 1.0
-        sw = max(1, round(w * scale))
-        sh = max(1, round(h * scale))
-        nx, ny, nw, nh = bx / sw, by / sh, bw / sw, bh / sh
+        nx, ny, nw, nh = bx / rw, by / rh, bw / rw, bh / rh
         if cached:
             cache = self._person_avatar_path(pid, face_id)
             if cache.exists():
@@ -597,7 +594,7 @@ class LibraryBridge(QObject):
         else:
             return None
         if cached:
-            self._queue_face_crop(pid, face_id, bx, by, bw, bh, fpath, w, h)
+            self._queue_face_crop(pid, face_id, nx, ny, nw, nh, fpath)
         return {
             "avatarSrc": src,
             "avatarX": max(0, round(nx * rw)),
@@ -615,8 +612,8 @@ class LibraryBridge(QObject):
                 / f"p{pid % 256:04d}" / f"p{pid}_f{face_id}.jpg")
 
     def _queue_face_crop(self, pid: int, face_id: int,
-                         bx: float, by: float, bw: float, bh: float,
-                         fpath: str, w: int, h: int) -> None:
+                         nx: float, ny: float, nw: float, nh: float,
+                         fpath: str) -> None:
         """人物头像缓存后台构建队列：每个人物只解码一次原图（0.6.18）。
 
         队列直接携带裁剪参数——worker 线程**零数据库访问**（共享连接
@@ -625,7 +622,9 @@ class LibraryBridge(QObject):
         0.6.20 修复：此前只把 (pid, face_id) 二元组入队，worker
         `_build_face_crop(*key)` 需要 9 参 → 全部 TypeError 被吞，
         **原图缓存从未构建成功过**（UI 一直走缩略图裁剪兜底，人物头像
-        实际比设计糊）。改为完整参数入队。"""
+        实际比设计糊）。改为完整参数入队。
+        0.6.31：参数改为归一化坐标，worker 按实际解码尺寸换算像素，
+        不再用 photos.width/height 反推缩放（RAW / 竖拍会错）。"""
         key = (pid, face_id)
         if key in self._fc_seen:
             return
@@ -636,7 +635,7 @@ class LibraryBridge(QObject):
                     target=self._fc_worker, daemon=True,
                     name="face-crop-cache")
                 self._fc_thread.start()
-        self._fcq.put((pid, face_id, bx, by, bw, bh, fpath, w, h))
+        self._fcq.put((pid, face_id, nx, ny, nw, nh, fpath))
 
     def _fc_worker(self) -> None:
         while True:
@@ -646,32 +645,32 @@ class LibraryBridge(QObject):
             try:
                 self._build_face_crop(*key)
             except Exception:
-                log.exception("人物头像缓存构建失败 pid=%s face_id=%s", *key)
+                log.exception("人物头像缓存构建失败 pid=%s face_id=%s",
+                              key[0], key[1])
             finally:
                 self._fcq.task_done()
             time.sleep(0.02)  # 温和节流，避免持续满速读盘挤占浏览
 
     def _build_face_crop(self, pid: int, face_id: int,
-                         bx: float, by: float, bw: float, bh: float,
-                         fpath: str, w: int, h: int) -> None:
+                         nx: float, ny: float, nw: float, nh: float,
+                         fpath: str) -> None:
         """从原图构建高质量人物头像缓存（200px，25% 边距）。"""
         out = self._person_avatar_path(pid, face_id)
         if out.exists():
             return
         fp = self._resolve(fpath)
-        if fp is None or not (w and h):
+        if fp is None:
             return
-        scale = min(1.0, MAX_DIM / max(h, w)) if max(h, w) > 0 else 1.0
-        x = int(bx / scale)
-        y = int(by / scale)
-        cw = int(bw / scale)
-        ch = int(bh / scale)
         try:
             from PIL import Image, ImageOps
 
             with Image.open(fp) as im:
                 im = ImageOps.exif_transpose(im).convert("RGB")
                 ww, hh = im.size
+                x, y = int(nx * ww), int(ny * hh)
+                cw, ch = max(8, int(nw * ww)), max(8, int(nh * hh))
+                x, y = max(0, min(x, ww - 1)), max(0, min(y, hh - 1))
+                cw, ch = min(cw, ww - x), min(ch, hh - y)
                 # 25% 边距，头像不顶边
                 mx, my = int(cw * 0.25), int(ch * 0.25)
                 x0, y0 = max(0, x - mx), max(0, y - my)
@@ -756,25 +755,25 @@ class LibraryBridge(QObject):
 
     def _build_face_hq(self, face_id: int, bbox: str, fpath: str,
                        w: int, h: int) -> None:
-        """从原图构建管理头像 HQ 裁剪（256px，25% 边距），LRU 淘汰兜底。"""
+        """从原图构建管理头像 HQ 裁剪（256px，25% 边距），LRU 淘汰兜底。
+
+        0.6.31：bbox 归一化基准自带检测图尺寸，按实际解码尺寸换算像素。"""
         out = self._face_hq_path(face_id)
         if out.exists():
             return
-        import json as _json
-
         try:
-            bx, by, bw, bh = _json.loads(bbox)
+            bx, by, bw, bh, rw, rh = parse_face_bbox(bbox, w, h)
         except Exception:
             return
-        scale = min(1.0, MAX_DIM / max(h, w)) if max(h, w) > 0 else 1.0
-        x, y = int(bx / scale), int(by / scale)
-        cw, ch = int(bw / scale), int(bh / scale)
+        nx, ny, nw, nh = bx / rw, by / rh, bw / rw, bh / rh
         try:
             from PIL import Image, ImageOps
 
             with Image.open(fpath) as im:
                 im = ImageOps.exif_transpose(im).convert("RGB")
                 ww, hh = im.size
+                x, y = int(nx * ww), int(ny * hh)
+                cw, ch = int(nw * ww), int(nh * hh)
                 x = max(0, min(x, ww - 1))
                 y = max(0, min(y, hh - 1))
                 cw = max(8, min(cw, ww - x))
@@ -1366,8 +1365,9 @@ class LibraryBridge(QObject):
     def photoFaces(self, photo_id: int) -> list[dict]:
         """照片内的人脸列表：bbox（检测图坐标）+ 归一化坐标 + 所属人物。
 
-        bbox 存的是检测缩放图（最长边 ≤ 2000）坐标；归一化坐标 = bbox / 缩放图尺寸，
-        供 QML 按实际显示尺寸叠加人脸框。"""
+        bbox 存的是检测缩放图（最长边 ≤ 2000）坐标；归一化坐标 = bbox / 检测图尺寸，
+        供 QML 按实际显示尺寸叠加人脸框。0.6.31 起检测图尺寸随 bbox 一起存库
+        （6 元素），RAW / 竖拍不再按 photos.width/height 误算基准。"""
         rows = self.db.conn.execute(
             "SELECT f.id, f.bbox, f.score, f.person_id, f.blur,"
             " COALESCE(p.name, '') FROM faces f"
@@ -1380,16 +1380,11 @@ class LibraryBridge(QObject):
         if not photo:
             return []
         w, h = photo[0] or 0, photo[1] or 0
-        import json
-
         display = self._person_display_map()
-        scale = min(1.0, MAX_DIM / max(h, w)) if max(h, w) > 0 else 1.0
-        sw = max(1, round(w * scale))
-        sh = max(1, round(h * scale))
         out = []
         for rid, bbox, score, pid, blur, pname in rows:
             try:
-                bx, by, bw, bh = json.loads(bbox)
+                bx, by, bw, bh, rw, rh = parse_face_bbox(bbox, w, h)
             except Exception:
                 continue
             # 0.6.25 补25：pid 归一为 int（历史数据可能存字符串），保证
@@ -1403,8 +1398,8 @@ class LibraryBridge(QObject):
                 "personName": display.get(pid, "未命名人物") if pid
                               else "未命名人物",
                 "blurIdx": int(blur) if blur is not None else -1,
-                "nx": bx / sw, "ny": by / sh,
-                "nw": bw / sw, "nh": bh / sh,
+                "nx": bx / rw, "ny": by / rh,
+                "nw": bw / rw, "nh": bh / rh,
             })
         return out
 
@@ -1694,7 +1689,9 @@ class LibraryBridge(QObject):
 
         0.6.18：裁剪结果存**临时目录**（会话级）——按脸持久化会让
         face_crops 膨胀到 2GB 级（每张脸一张）；人物页头像已改为按人物
-        缓存（人物数级别）。从原图构建（清晰），失败回退缩略图裁剪。"""
+        缓存（人物数级别）。从原图构建（清晰），失败回退缩略图裁剪。
+        0.6.31：改用 bbox 自带检测图尺寸算归一化坐标，RAW 的缩略图裁剪
+        （信息面板逐脸小图）不再整体错位；原图裁剪按实际解码尺寸换算。"""
         row = self.db.conn.execute(
             "SELECT f.photo_id, f.bbox, p.file_path, p.width, p.height,"
             " p.thumbnail_path, p.thumb_width, p.thumb_height"
@@ -1703,7 +1700,6 @@ class LibraryBridge(QObject):
         ).fetchone()
         if not row:
             return ""
-        import json
         from PySide6.QtCore import QUrl
 
         photo_id, bbox, file_path, w, h, tpath, tw, th = row
@@ -1711,13 +1707,10 @@ class LibraryBridge(QObject):
         if fp is None:
             return ""
         try:
-            bx, by, bw, bh = json.loads(bbox)
+            bx, by, bw, bh, rw, rh = parse_face_bbox(bbox, w, h)
         except Exception:
             return ""
-        scale = min(1.0, MAX_DIM / max(h, w)) if max(h, w) > 0 else 1.0
-        sw = max(1, round(w * scale))
-        sh = max(1, round(h * scale))
-        nx, ny, nw, nh = bx / sw, by / sh, bw / sw, bh / sh
+        nx, ny, nw, nh = bx / rw, by / rh, bw / rw, bh / rh
         try:
             from PIL import Image, ImageOps
 
@@ -1729,10 +1722,10 @@ class LibraryBridge(QObject):
             with Image.open(fp) as im:
                 im = ImageOps.exif_transpose(im).convert("RGB")
                 ww, hh = im.size
-                x = int(bx / scale)
-                y = int(by / scale)
-                cw = int(bw / scale)
-                ch = int(bh / scale)
+                x = int(nx * ww)
+                y = int(ny * hh)
+                cw = int(nw * ww)
+                ch = int(nh * hh)
                 x = max(0, min(x, ww - 1))
                 y = max(0, min(y, hh - 1))
                 cw = max(8, min(cw, ww - x))
@@ -2612,6 +2605,8 @@ class LibraryBridge(QObject):
 
         from PySide6.QtCore import QUrl
 
+        from photo_manager.core import rawio
+
         r = self.db.conn.execute(
             "SELECT file_path, ext FROM photos WHERE id=?", (photo_id,)).fetchone()
         if not r:
@@ -2620,7 +2615,10 @@ class LibraryBridge(QObject):
         if fp is None:
             return ""
         ext = (r[1] or Path(r[0]).suffix).lower()
-        if ext in _QT_NATIVE_EXTS:
+        # 0.6.32b：.tif/.tiff 虽在 Qt 原生集合，但「TIFF 容器装相机 RAW」的文件
+        # Qt 插件要么解不出（空白）要么只解出内嵌缩略图（预览特小）——必须走
+        # 按需解码预览（make_preview_ex 已接容器嗅探），不能把原文件直接给 QML。
+        if ext in _QT_NATIVE_EXTS and not rawio.is_container_raw(fp):
             return QUrl.fromLocalFile(str(fp)).toString()
         # 解码预览（按需生成 + 缓存）
         h = hashlib.sha1(str(r[0]).encode("utf-8")).hexdigest()

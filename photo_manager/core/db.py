@@ -22,6 +22,11 @@ from pathlib import Path
 
 DB_VERSION = 1
 
+# 人脸框坐标格式版本：仅当 bbox 的存储口径变化、历史框无法换算时 +1。
+# 1 = 0.6.31：faces.bbox 改为 6 元素（自带检测图尺寸），修复相机 RAW 的
+# 人脸框 / 头像裁剪整体错位；meta.face_bbox_version 记录已迁移版本。
+FACE_BBOX_VERSION = 1
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (
     key   TEXT PRIMARY KEY,
@@ -359,6 +364,141 @@ class Database:
             " scanned_at TEXT NOT NULL DEFAULT (datetime('now')),"
             " PRIMARY KEY (a, b))"
         )
+        self._migrate_raw_analysis_state()
+        self._migrate_face_bbox_state()
+        self._migrate_container_raw_reindex()
+
+    def _migrate_face_bbox_state(self) -> None:
+        """0.6.31：一次性作废历史相机 RAW 的人脸框（人脸检测重跑一次）。
+
+        0.6.30 让 RAW 首次检出人脸，但 bbox 写在「内嵌 JPEG 预览 /
+        half_size 后处理图」的坐标系，界面却按 photos.width/height
+        （LibRaw 传感器真实尺寸，0.6.30 起才正确记录）归一化，竖拍再叠加
+        EXIF 宽高互换 → 框与头像裁剪整体错位。这批旧框在不重新解码原图的
+        前提下无法反算，因此重置 face_done 让增量检测重跑并写入自带尺寸
+        基准的新 bbox。
+
+        刻意只动 RAW 且 media_type='photo' 的**人脸**：普通照片、OCR 结果
+        （0.6.30 的文字识别结果有效）、语义向量、status、宽高、其它错误
+        一律不动，避免整库重扫。meta.face_bbox_version 保证每个库只执行一次。
+
+        删旧 faces 行前把「照片 → 人物名」备份进 face_name_backup：聚类是按
+        脸 id 继承名字的，只在这批 RAW 上出现过的人物名会随旧行一起消失，
+        由 FacePipeline 重跑检测时还原（见 faces._restore_face_name）。
+        """
+        from photo_manager.core.rawio import is_raw  # noqa: PLC0415
+
+        row = self.conn.execute(
+            "SELECT value FROM meta WHERE key='face_bbox_version'").fetchone()
+        try:
+            seen = int(row[0]) if row else 0
+        except (TypeError, ValueError):
+            seen = 0
+        if seen >= FACE_BBOX_VERSION:
+            return
+
+        self.conn.execute(
+            "CREATE TABLE IF NOT EXISTS face_name_backup ("
+            " photo_id INTEGER PRIMARY KEY, person_name TEXT NOT NULL)")
+        rows = self.conn.execute(
+            "SELECT id, file_path FROM photos WHERE media_type='photo'").fetchall()
+        ids = [pid for pid, path in rows if is_raw(path)]
+        for start in range(0, len(ids), 400):
+            chunk = ids[start:start + 400]
+            q = ",".join("?" * len(chunk))
+            self.conn.execute(
+                "INSERT OR REPLACE INTO face_name_backup(photo_id, person_name)"
+                " SELECT f.photo_id, p.name FROM faces f"
+                " JOIN persons p ON p.id = f.person_id"
+                " WHERE p.name IS NOT NULL AND p.name != ''"
+                f" AND f.photo_id IN ({q})"
+                " GROUP BY f.photo_id", chunk)
+            self.conn.execute(
+                "UPDATE photos SET face_done=0, face_count=0,"
+                " error=CASE WHEN error LIKE 'face:%' THEN NULL ELSE error END"
+                f" WHERE id IN ({q})", chunk)
+            self.conn.execute(f"DELETE FROM faces WHERE photo_id IN ({q})", chunk)
+        self.conn.execute(
+            "INSERT OR REPLACE INTO meta(key, value)"
+            " VALUES ('face_bbox_version', ?)", (str(FACE_BBOX_VERSION),))
+
+    def _migrate_raw_analysis_state(self) -> None:
+        """0.6.30：相机 RAW 读图层上线后，一次性作废历史 RAW 的人脸 / OCR 结果。
+
+        0.6.30 之前 faces / ocr 直接读原文件：多数相机 RAW 解码失败后永久
+        滞留 face_done=0，少数 CR2 / NEF 只解出 120×160 的内嵌缩略图却被
+        误标「已分析、无人脸」——升级后若不重置，这批照片永远不会重扫。
+
+        只对 RAW 生效，普通照片一条不动；meta.raw_reader_version 保证每个库
+        只执行一次，用户此后重新分析的结果不会被反复清掉。刻意不动：
+        - width / height（历史尺寸记录留给完整性修复 / 重新导入更新，
+          启动时逐张调 LibRaw 会拖慢首启）
+        - status（保持 indexed 才能被分析链选中）
+        - photo_embeddings（clip 一直有 RAW 分支，旧语义向量有效）
+        """
+        from photo_manager.core.rawio import (  # noqa: PLC0415 - 避免 core 层启动期耦合
+            RAW_READER_VERSION, is_raw,
+        )
+
+        row = self.conn.execute(
+            "SELECT value FROM meta WHERE key='raw_reader_version'").fetchone()
+        try:
+            seen = int(row[0]) if row else 0
+        except (TypeError, ValueError):
+            seen = 0
+        if seen >= RAW_READER_VERSION:
+            return
+
+        rows = self.conn.execute(
+            "SELECT id, file_path FROM photos WHERE media_type='photo'").fetchall()
+        ids = [pid for pid, path in rows if is_raw(path)]
+        # 与 pipeline.py 的照片重分析语义一致：清掉派生记录，避免重跑时重复插入。
+        # 分块规避 SQLite 参数上限；UPDATE 会触发 photos_fts 同步（既有触发器行为）。
+        for start in range(0, len(ids), 400):
+            chunk = ids[start:start + 400]
+            q = ",".join("?" * len(chunk))
+            self.conn.execute(
+                "UPDATE photos SET face_done=0, face_count=0, ocr_done=0,"
+                " ocr_text='', has_text=0,"
+                " error=CASE WHEN error LIKE 'face:%' OR error LIKE 'ocr:%'"
+                " THEN NULL ELSE error END"
+                f" WHERE id IN ({q})", chunk)
+            self.conn.execute(f"DELETE FROM faces WHERE photo_id IN ({q})", chunk)
+            self.conn.execute(f"DELETE FROM ocr_texts WHERE photo_id IN ({q})", chunk)
+            self.conn.execute(f"DELETE FROM ocr_fts WHERE rowid IN ({q})", chunk)
+        self.conn.execute(
+            "INSERT OR REPLACE INTO meta(key, value) VALUES ('raw_reader_version', ?)",
+            (str(RAW_READER_VERSION),),
+        )
+
+    def _migrate_container_raw_reindex(self) -> None:
+        """0.6.32：TIFF 容器型相机 RAW 修复后，把历史 .tif/.tiff 重新排队重建。
+
+        0.6.32 起 read_bgr / 缩略图 / 预览 / 元数据对「扩展名 .tif/.tiff、
+        内容是相机 RAW」的文件走 LibRaw 解码（此前扩展名不在 RAW 集合、
+        全走普通图片路径）。历史库内这批照片的派生数据是坏的：一部分分析
+        失败（cannot identify image file），其余宽高记成百像素内嵌缩略图、
+        缩略图 / 预览 / 感知哈希 / 语义向量全部来自小图、竖拍被 EXIF tag
+        二次转正。
+
+        错误无法原位反算（需要重新解码重建），因此按 integrityRepair 的
+        既有语义把它们整体置为 pending：下次「扫描入库」（含定时任务）时
+        pipeline 的 pending 恢复路径会重提取元数据（LibRaw 真实尺寸）、
+        重建缩略图/预览、清掉人脸/OCR/语义向量并把分析状态归零。
+        普通照片与真 RAW 一条不动；meta.container_raw_reindex 保证每库
+        只执行一次，避免此后每次启动都把用户的 TIFF 反复排队。
+        """
+        row = self.conn.execute(
+            "SELECT value FROM meta WHERE key='container_raw_reindex'").fetchone()
+        if row:
+            return
+        self.conn.execute(
+            "UPDATE photos SET status='pending', error=NULL"
+            " WHERE lower(ext) IN ('.tif', '.tiff')"
+            " AND status IN ('indexed', 'failed', 'error')")
+        self.conn.execute(
+            "INSERT OR REPLACE INTO meta(key, value)"
+            " VALUES ('container_raw_reindex', '1')")
 
     def close(self) -> None:
         if self.conn is not None:

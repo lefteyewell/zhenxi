@@ -5,43 +5,39 @@ EXIF / folders / arbitrary combinations), thumbnails and full-size viewing,
 batch export at common resolutions — **the app never deletes or modifies your original
 files**.
 
-## Latest release v0.6.29 (2026-11-12)
+## Latest release v0.7.1 (2026-11-15)
 
 > 📥 Download: [Releases page](https://github.com/lefteyewell/zhenxi/releases) ｜
 > 📋 All version changes: [CHANGELOG.md](CHANGELOG.md)
 
 **Fixed**
 
-- **The tray bubble message never appeared** - the call passed the display duration into the icon parameter slot, raising a silent TypeError; fixed, the "minimized to tray" message now shows properly
-- **Deleting a person now needs just one checkbox** - previously required 2 or more; deleting a person only removes face ownership, photos are untouched (confirmation step kept)
-- **Filter → All inside a person's photo list no longer jumps back to all photos** - it stays within the person and reloads that person's full photo list
+- **Camera RAW files disguised as .tiff were not recognized** - some conversion tools store Nikon NEF / Canon CR2 sensor data verbatim in a .tiff container: the extension looks like an ordinary image while the content is camera RAW. They were decoded as ordinary images: some failed to import outright, others only yielded their tiny embedded thumbnail (120×160–852×640), leaving an extra-small preview, wrong dimensions, no faces and failed OCR. Files are now sniffed **by content**: a .tif/.tiff that LibRaw recognizes as camera RAW (real size clearly larger, or ordinary decoding fails outright) goes through the RAW decoding path. All 21 sample files now decode to their true 1306×978–7360×4912 images, with thumbnails, previews, dimensions, faces and OCR restored
+- **Preview orientation was wrong on such files** - on some container RAW files (Nikon D3X sample) the outer TIFF orientation tag conflicts with the embedded pixel orientation, and re-rotating by the tag laid the image on its side with undetectable faces. Orientation now follows the actual decoded data; already-upright images are no longer rotated again
+- **The photo viewer still showed blank or tiny previews for .tif/.tiff** - .tif/.tiff sit in the "Qt-decodable" list, so the viewer handed the original file straight to the Qt image engine, bypassing the sniffing path entirely; the integrity deep-decode check skipped them the same way. Both places now sniff for container RAW first: the viewer shows an on-demand decoded preview (cached after first use) and the deep check covers container files
 
 **Improved**
 
-- **The About dialog now mentions GPLv3 only once** - the copyright line is simplified and the warranty line just points to Help → Open-source license
-- **Cleaner people-page top bar** - the "Clear selection" button is gone (Select itself toggles the mode); buttons are left-aligned with an always-visible horizontal scrollbar when the window is too narrow
-- **26 missing English UI strings added** - full scan of 1544 translation literals with zero misses (duplicate-persons dialog, settings descriptions, count fragments, etc.)
+- **Ordinary TIFF photos are completely unaffected** - sniffing applies only to .tif / .tiff extensions and requires the LibRaw size to be ≥2× the ordinary decode (or the ordinary decode to fail) before treating the file as camera RAW; sniff results are cached per file (path + mtime + size), so repeated analysis passes add no overhead
+- **Viewer button "1:1 Original" renamed to "High-res" with an honest tooltip** - the view for RAW/HEIC files is a decoded preview up to 1920 px on the long edge (a long-standing design); the tooltip now says so plainly
+- **Help dialog gained an "Exceptions & special notes" section** - preview resolution for RAW/HEIC, JPEG XL unsupported by default, and ImageMagick dependency for niche formats, collected in one place
+
+> ⚠️ **After upgrading, run "Scan & import" once**: the first launch resets existing .tif / .tiff photos in the library to pending re-analysis (once per database); one scan then rebuilds their thumbnails, previews and dimensions and re-runs face / text / semantic / perceptual-hash analysis. Ordinary photos and videos are unaffected. Backing up the database first is recommended. See [CHANGELOG.md](CHANGELOG.md).
 
 <details>
-<summary>Previous release v0.6.28 (2026-11-12) summary</summary>
+<summary>Previous release v0.6.31 (2026-11-13) summary</summary>
 
 **Fixed**
 
-- **Tapping "Stack view" on a person's photo list then leaving it always jumped back to "All photos"** - exiting stacks now returns to the view you came from (e.g. the person list), keeping the original behavior only for the all-photos entry
-- **Face clustering similarity threshold actually defaulted to 0.50** - 0.6.9 intended to raise it to 0.60 but the settings reader kept the old default, so users who never touched the slider clustered at 0.50 (too loose, prone to merging different people); now unified at 0.60 - users with a manually saved value are unaffected
-- **The About dialog's license pointer pointed at itself** - now points to Help → Open-source license (GPLv3) and the duplicate LICENSE sentence was removed
-- **Duplicate-persons dialog merged in the wrong direction** (hidden bug since 0.6.20) - now keeps the side with more photos
-- **Merged/ignored rows stayed in the duplicate dialog** - rows now disappear immediately with the count synced; refresh requests are queued instead of dropped
-- **The dialog showed the previous scan's results** - the old list is cleared when a scan starts, with a live "Compared N / M faces" counter
+- **Face boxes on camera RAW photos were all misplaced** - v0.6.30 made RAW face detection work for the first time, but boxes were recorded on the small detection image (a ~1000 px embedded preview) while the UI scaled them against the full sensor dimensions now stored in the library (6000×4000 class) - several times off, with width/height swapped again for portrait shots. Both the boxes in the preview dialog and the face thumbnails in the info panel landed in the wrong place. Boxes now carry their own detection-image dimensions and every UI path normalizes against them; the long-standing slight offset on portrait JPEGs is fixed too
+- **Only the display was wrong** - detection, SFace features and people clustering all use the same detection image and remain valid; no change to the recognition algorithms
 
 **Improved**
 
-- **Empty stack view now shows guidance** - hints to run "Detect photo stacks" in the Tools Center
-- **Face-detection completion message now uses a "re-scan pending photos" wording** - avoids being misread as a full-library rescan
-- **Threshold description highlights "Face clustering"** - bolded with a note that it is not "Face recognition"; the suggested value is now 0.6
-- **People-page action buttons merged into one top-bar row** - fixed row with disabled states and a context-aware duplicate scan button
-- **Photo thumbnails show only the file name** - the date/time prefix was removed; shooting time is still in the info panel
-- **Merging prefers user-renamed names** - if exactly one side was renamed, it absorbs the other and keeps its name regardless of photo counts
+- **Tool Center now explains which photos each button analyzes**: Face detection / Text recognition / Perceptual hash / Semantic vectors are incremental, while Event clustering / Face clustering / Detect stacks are full rebuilds; the Help dialog links to it and all English strings are added
+- **Old and new metadata packages stay compatible** - after face boxes gained their own dimensions, `.meta.db` files exported by older versions still match face ownership correctly; user-assigned person names are backed up before stale results are invalidated
+
+> ⚠️ That release asks you to re-run "Face detection" once, with a database backup first.
 
 </details>
 

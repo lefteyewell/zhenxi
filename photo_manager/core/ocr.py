@@ -25,6 +25,7 @@ from concurrent.futures.process import BrokenProcessPool
 from pathlib import Path
 from typing import Callable
 
+from photo_manager.core import rawio
 from photo_manager.core.db import Database
 from photo_manager.core.system import analysis_workers
 
@@ -43,7 +44,17 @@ def _init_worker(_=None) -> None:
 
 
 def _work(path: str) -> list[dict]:
-    result, _ = _worker(path)
+    # RAW 修复：RapidOCR 只认常规栅格，直接传相机 RAW 路径会抛
+    # LoadImageError「cannot identify image file」→ 照片永久滞留 ocr_done=0。
+    # 仅 RAW 先解码成 ndarray（RapidOCR 支持数组入参）；普通图片保持原路径，
+    # 非 RAW 路径行为完全不变。
+    # 0.6.32：TIFF 容器型相机 RAW（扩展名 .tif/.tiff、内容是 RAW）同样
+    # 先解码——RapidOCR 对它们解不出或只解出百像素级内嵌缩略图。
+    if rawio.is_raw(path) or rawio.is_container_raw(path):
+        img = rawio.read_bgr(path)
+    else:
+        img = path
+    result, _ = _worker(img)
     if not result:
         return []
     out = []

@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import os
 
+from photo_manager.core import rawio
 from photo_manager.core.paths import resolve_data_path
 
 # 五类问题的稳定顺序（UI 展示与 repair 均按此）
@@ -198,12 +199,17 @@ def deep_decode_check(conn, progress_cb=None, folder: str = "") -> dict:
         if progress_cb and i % 20 == 0:
             progress_cb(i, len(rows))
         e = (ext or "").lower()
-        if not e or e in QT_NATIVE_EXTS:
+        # 0.6.32b：.tif/.tiff 在 QT_NATIVE_EXTS 里，但容器装 RAW 的必须走
+        # LibRaw 深度校验（下方分支），不得按「原生格式」提前跳过。
+        if not e or (e in QT_NATIVE_EXTS and not rawio.is_container_raw(str(path))):
             continue  # 原生格式不在可检范围
         scanned += 1
         ok = False
+        # 0.6.32：TIFF 容器型相机 RAW（.tif/.tiff 装传感器数据）Pillow 解不出
+        # 像素流属正常，必须走 LibRaw 校验，否则会被误标「无法解码」。
+        is_raw_like = e in _RAW_EXTS or rawio.is_container_raw(str(path))
         try:
-            if e in _RAW_EXTS:
+            if is_raw_like:
                 import rawpy  # noqa: PLC0415
 
                 with rawpy.imread(str(path)) as raw:
