@@ -5,10 +5,24 @@ EXIF / folders / arbitrary combinations), thumbnails and full-size viewing,
 batch export at common resolutions — **the app never deletes or modifies your original
 files**.
 
-## Latest release v0.7.1 (2026-11-15)
+## Latest release v0.7.2 (2026-11-18)
 
 > 📥 Download: [Releases page](https://github.com/lefteyewell/zhenxi/releases) ｜
 > 📋 All version changes: [CHANGELOG.md](CHANGELOG.md)
+
+**New**
+
+- **JPEG XL (.jxl) works out of the box** - the libjxl reference decoder `djxl` (BSD-3) now ships with the package, so manually installing pillow-jxl-plugin is no longer needed (an installed plugin still takes priority); import, thumbnails, previews, faces, text recognition and semantic vectors all work
+- **Apple Live Photos (.livp) import** - .livp is a zip wrapping "HEIC still + MOV video"; it is unpacked into two ordinary records that each go through the existing pipelines, with no special-cased paths
+- **FITS astronomy format import** - a built-in zero-dependency mini parser (8/16/32-bit integers and 32/64-bit floats) with percentile-stretch display
+- **Multi-layer photo decoding fallback** - OpenCV → Pillow → (djxl for .jxl) → ImageMagick-if-installed, so niche-format photos no longer fail outright when OpenCV cannot decode them
+
+**Improved**
+
+- **Help "Exceptions" section updated**: .jxl now "supported out of the box"; FITS removed from the ImageMagick-dependency list; video playback decoding is built into the program (Qt's FFmpeg backend decodes H.264/HEVC natively — no system codec extension needed)
+
+<details>
+<summary>Previous release v0.7.1 (2026-11-15) summary</summary>
 
 **Fixed**
 
@@ -22,22 +36,7 @@ files**.
 - **Viewer button "1:1 Original" renamed to "High-res" with an honest tooltip** - the view for RAW/HEIC files is a decoded preview up to 1920 px on the long edge (a long-standing design); the tooltip now says so plainly
 - **Help dialog gained an "Exceptions & special notes" section** - preview resolution for RAW/HEIC, JPEG XL unsupported by default, and ImageMagick dependency for niche formats, collected in one place
 
-> ⚠️ **After upgrading, run "Scan & import" once**: the first launch resets existing .tif / .tiff photos in the library to pending re-analysis (once per database); one scan then rebuilds their thumbnails, previews and dimensions and re-runs face / text / semantic / perceptual-hash analysis. Ordinary photos and videos are unaffected. Backing up the database first is recommended. See [CHANGELOG.md](CHANGELOG.md).
-
-<details>
-<summary>Previous release v0.6.31 (2026-11-13) summary</summary>
-
-**Fixed**
-
-- **Face boxes on camera RAW photos were all misplaced** - v0.6.30 made RAW face detection work for the first time, but boxes were recorded on the small detection image (a ~1000 px embedded preview) while the UI scaled them against the full sensor dimensions now stored in the library (6000×4000 class) - several times off, with width/height swapped again for portrait shots. Both the boxes in the preview dialog and the face thumbnails in the info panel landed in the wrong place. Boxes now carry their own detection-image dimensions and every UI path normalizes against them; the long-standing slight offset on portrait JPEGs is fixed too
-- **Only the display was wrong** - detection, SFace features and people clustering all use the same detection image and remain valid; no change to the recognition algorithms
-
-**Improved**
-
-- **Tool Center now explains which photos each button analyzes**: Face detection / Text recognition / Perceptual hash / Semantic vectors are incremental, while Event clustering / Face clustering / Detect stacks are full rebuilds; the Help dialog links to it and all English strings are added
-- **Old and new metadata packages stay compatible** - after face boxes gained their own dimensions, `.meta.db` files exported by older versions still match face ownership correctly; user-assigned person names are backed up before stale results are invalidated
-
-> ⚠️ That release asks you to re-run "Face detection" once, with a database backup first.
+> ⚠️ **After upgrading, run "Scan & import" once**: the first launch resets existing .tif / .tiff photos in the library to pending re-analysis (once per database); one scan then rebuilds their thumbnails, previews and dimensions and re-runs face / text / semantic / perceptual-hash analysis. Ordinary photos and videos are unaffected. Backing up the database first is recommended.
 
 </details>
 

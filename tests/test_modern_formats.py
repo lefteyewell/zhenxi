@@ -51,11 +51,17 @@ class TestModernFormatWhitelist(unittest.TestCase):
             self.assertEqual(e in scanner.IMAGE_EXTS, have, e)
 
     def test_jxl_gated(self):
-        self.assertEqual(".jxl" in scanner.IMAGE_EXTS, _have("pillow_jxl_plugin"))
+        # 0.7.2 起随包 djxl（BSD-3）：装 pillow-jxl-plugin 或 bin/djxl.exe
+        # 任一在位即可解码，.jxl 恒在白名单
+        self.assertTrue(".jxl" in scanner.IMAGE_EXTS)
+        self.assertTrue(
+            _have("pillow_jxl_plugin") or extractor.djxl_available(), ".jxl 需插件或 djxl")
 
     def test_imagemagick_exts_gated(self):
+        # .fits 0.7.2 起由内置迷你解析器支持（恒在白名单）；其余仍按 IM 门控
+        self.assertIn(".fits", scanner.IMAGE_EXTS)
         im = extractor.imagemagick_available()
-        for e in (".fits", ".hdr", ".exr", ".flif", ".bpg", ".pcd"):
+        for e in (".hdr", ".exr", ".flif", ".bpg", ".pcd"):
             self.assertEqual(e in scanner.IMAGE_EXTS, im, e)
 
 

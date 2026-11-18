@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Callable, Iterable
 
 from photo_manager.core.db import Database
+from photo_manager.core.livp import check_livp_missing, sync_livp
 
 # Pillow 原生即可解码的图片格式（Pillow 必装，恒纳入）。
 # 含通用格式 + 摄影师常用扩展：多图/3D(MPO)、Photoshop(PSD)、TGA/PCX/PNM 系。
@@ -59,7 +60,10 @@ VIDEO_EXTS = {
     ".f4v", ".webm", ".mpg", ".mpeg", ".mpe", ".mpv", ".3gp", ".3g2",
     ".3gpp", ".mts", ".m2ts", ".ts", ".ogv", ".vob",
 }
-ALL_EXTS = IMAGE_EXTS | RAW_EXTS | VIDEO_EXTS
+# 苹果 Live Photo 单文件打包（zip 容器，内含 HEIC + MOV）：扫描期解包为
+# 两条正常记录入库（见 core/livp.py），不是普通图片/视频扩展名。
+LIVP_EXTS = {".livp"}
+ALL_EXTS = IMAGE_EXTS | RAW_EXTS | VIDEO_EXTS | LIVP_EXTS
 
 SKIP_DIRS = {".git", "__pycache__", "$recycle.bin", "system volume information"}
 
@@ -127,6 +131,12 @@ class Scanner:
             root = os.path.abspath(str(root)).replace("\\", "/")
             for info in self._walk(root, recursive):
                 result.total_seen += 1
+                if info.ext in LIVP_EXTS:
+                    # .livp：解包入库两条正常记录（照片 + 视频），不进 photos
+                    # 增量对照（源文件状态由 livp_sources 表追踪）
+                    if sync_livp(info, self.db) > 0:
+                        result.changed_files.append(info)
+                    continue
                 key = info.file_path
                 if key in known:
                     old_mtime, old_size = known[key]
@@ -142,6 +152,7 @@ class Scanner:
 
         # 恢复：磁盘上重新出现的照片（之前被 reindexCheck 标记 missing）——
         # 即使 mtime/size 未变也需解除 missing，否则会永久不可见。
+        check_livp_missing(self.db)
         for (path,) in self.db.conn.execute(
             "SELECT file_path FROM photos WHERE status='missing'"
         ):

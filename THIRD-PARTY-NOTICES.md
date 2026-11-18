@@ -16,8 +16,10 @@
 | Pillow | >=11.1.0 | MIT-CMU | Pillow 开发者 |
 | pillow-heif | >=1.1.0 | BSD-3-Clause | pillow-heif 开发者 |
 | rawpy | >=0.21.0 | MIT | LetMeLtd |
+| └─ LibRaw（rawpy 扩展内嵌） | LGPL-2.1-only **OR** CDDL-1.0（双许可，**按 CDDL-1.0 选项分发**） | LibRaw LLC。以静态方式内嵌于 rawpy 的原生扩展；依其 CDDL-1.0 许可选项可静态链接并闭源再分发；源码 https://github.com/LibRaw/LibRaw |
 | exifread | >=3.0.0 | BSD-2-Clause | Gene Cash |
 | piexif | >=1.1.3 | MIT | hMatoba（仅 tools/ 开发工具使用，不入安装包） |
+| libjxl 官方解码 CLI（djxl，静态编译） | v0.13.0 | BSD-3-Clause（随包 bin/LICENSE.libjxl 为其全部捆绑组件许可汇总） | JPEG XL Project。随包 `bin/djxl.exe` 分发（.jxl 未装 pillow-jxl-plugin 时的解码路径）；源码 https://github.com/libjxl/libjxl |
 
 ## 随包分发的传递依赖
 

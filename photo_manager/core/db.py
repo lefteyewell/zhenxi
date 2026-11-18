@@ -214,6 +214,15 @@ CREATE TABLE IF NOT EXISTS library_imports (
     src_mtime REAL,
     src_size  INTEGER
 );
+
+-- .livp（Live Photo 打包）解包映射：源增量状态与解包产物路径关联（0.7.2）
+CREATE TABLE IF NOT EXISTS livp_sources (
+    livp_path   TEXT PRIMARY KEY,
+    livp_mtime  REAL,
+    livp_size   INTEGER,
+    photo_path  TEXT NOT NULL DEFAULT '',
+    video_path  TEXT NOT NULL DEFAULT ''
+);
 """
 
 

@@ -49,6 +49,10 @@ for _f in sorted(os.listdir("models/clip")):
 # 只需成品 geo.sqlite；cities1000.zip / countryInfo.txt 等为构建输入，不随包分发。
 datas += [("models/geo/geo.sqlite", "models/geo")]
 
+# libjxl 官方解码 CLI（djxl，BSD-3；.jxl 未装 pillow-jxl-plugin 时兜底解码）
+# 静态编译免 DLL；许可文件随 bin/ 一并分发（THIRD-PARTY-NOTICES.md 有条目）。
+datas += [("bin/djxl.exe", "bin"), ("bin/LICENSE.libjxl", "bin")]
+
 a = Analysis(
     ["photo_manager/main.py"],
     pathex=[str(project)],

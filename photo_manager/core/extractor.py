@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import io
 import logging
+import os
 from pathlib import Path
 
 from PIL import Image, ImageOps
@@ -490,6 +491,119 @@ def imagemagick_to_jpeg(src: str, dst: str, max_edge: int = 1920) -> bool:
 # Qt 图像插件可直接解码的格式（大图查看直接用原文件，无需生成预览）。
 # 其余格式（44 种相机 RAW + HEIC/HEIF/AVIF/JXL + ImageMagick 兜底格式）
 # 必须走 make_preview 解码——Qt QImage 读它们直接返回 null（查看器空白）。
+_DJXL: str | None = None
+
+
+def _fits_to_pil(p: str) -> Image.Image | None:
+    """FITS → PIL 图（内置迷你解析器归一化 uint8）。失败返回 None。"""
+    try:
+        from photo_manager.core import fitsread  # noqa: PLC0415
+
+        arr, _err = fitsread.read_fits_array(p)
+        if arr is not None:
+            return Image.fromarray(arr)
+    except Exception:
+        pass
+    return None
+
+
+def _find_djxl() -> str | None:
+    """探测 djxl（libjxl 官方解码 CLI，BSD-3；bin/ 随包分发）。
+
+    查找顺序：随包 _internal/bin/（frozen onedir）→ 仓库根 bin/（开发）→
+    PATH。与 _find_imagemagick 同风格：必须跑 --version 校验输出，防误判。
+    """
+    global _DJXL
+    if _DJXL is None:
+        import os  # noqa: PLC0415
+        import shutil  # noqa: PLC0415
+        import subprocess  # noqa: PLC0415
+        import sys  # noqa: PLC0415
+
+        _DJXL = ""
+        exe = "djxl.exe" if os.name == "nt" else "djxl"
+        cands: list[str] = []
+        try:
+            cands.append(str(Path(sys.executable).resolve().parent
+                             / "_internal" / "bin" / exe))
+        except Exception:
+            pass
+        try:
+            cands.append(str(Path(__file__).resolve().parents[2] / "bin" / exe))
+        except Exception:
+            pass
+        w = shutil.which("djxl")
+        if w:
+            cands.append(w)
+        for c in cands:
+            if c and os.path.isfile(c):
+                try:
+                    r = subprocess.run(
+                        [c, "--version"], capture_output=True, timeout=10,
+                        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                    out = (r.stdout or b"") + (r.stderr or b"")
+                    if b"djxl" in out:
+                        _DJXL = c
+                        break
+                except Exception:
+                    continue
+    return _DJXL or None
+
+
+def djxl_available() -> bool:
+    """供 scanner 判断是否纳入 .jxl（bin/ 随包即恒可用）。"""
+    return _find_djxl() is not None
+
+
+def jxl_to_png(src: str, dst: str) -> bool:
+    """djxl 解 .jxl → PNG（dst 为具体输出文件路径）。失败返回 False。
+
+    djxl 是外部 CLI（静态编译，无 DLL 依赖），失败只影响本张图，
+    绝不让调用链崩。超时 120s（超大图全尺寸解码兜底余量）。
+    """
+    exe = _find_djxl()
+    if not exe:
+        return False
+    import os  # noqa: PLC0415
+    import subprocess  # noqa: PLC0415
+
+    try:
+        r = subprocess.run(
+            [exe, src, dst], capture_output=True, timeout=120,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        return r.returncode == 0 and os.path.isfile(dst)
+    except Exception:
+        return False
+
+
+def _jxl_to_temp_png(src: str) -> str | None:
+    """.jxl → 临时 PNG；失败返回 None（调用方负责 unlink）。"""
+    import os  # noqa: PLC0415
+    import tempfile  # noqa: PLC0415
+
+    fd, dst = tempfile.mkstemp(suffix=".png")
+    os.close(fd)
+    if os.path.exists(dst):
+        os.unlink(dst)  # djxl 要求输出路径不存在（拒绝覆盖）
+    if jxl_to_png(src, dst):
+        return dst
+    try:
+        os.unlink(dst)
+    except OSError:
+        pass
+    return None
+
+
+def jxl_supported() -> bool:
+    """.jxl 当前环境是否可解码：pillow-jxl-plugin（开源版可装）或随包 djxl。"""
+    try:
+        import pillow_jxl_plugin  # noqa: F401
+
+        return True
+    except Exception:
+        return _find_djxl() is not None
+
+
 QT_NATIVE_EXTS = {
     ".jpg", ".jpeg", ".png", ".bmp", ".gif", ".webp", ".tif", ".tiff", ".mpo",
 }
@@ -578,6 +692,29 @@ def make_preview_ex(file_path: str | Path, out_path: str | Path,
             state = "ok"
     except Exception:
         img = None
+    if img is None and ext in (".fits", ".fit", ".fts"):
+        # 2.4) FITS：内置迷你解析器（零依赖，归一化 uint8），恒可用；
+        # 解析不了的变体仍落 IM 兜底
+        pil = _fits_to_pil(p)
+        if pil is not None:
+            img = ImageOps.exif_transpose(pil)
+            state = "ok"
+    if img is None and ext == ".jxl":
+        # 2.5) djxl 兜底：未装 pillow-jxl-plugin 时走随包 djxl CLI（BSD-3）。
+        # 解出 PNG 再交给下方统一保存链，state="ok"（全图解码，可信）。
+        conv = _jxl_to_temp_png(p)
+        if conv:
+            try:
+                with Image.open(conv) as im:
+                    img = ImageOps.exif_transpose(im)
+                    state = "ok"
+            except Exception:
+                img = None
+            finally:
+                try:
+                    os.unlink(conv)
+                except OSError:
+                    pass
     if img is None:
         # 3) ImageMagick 兜底（FITS/HDR/EXR/FLIF/BPG/PCD…）——成功即真解码
         if imagemagick_to_jpeg(p, str(out_path), max_edge):
@@ -618,8 +755,12 @@ def decodable_extra_exts() -> set[str]:
         exts.add(".jxl")
     except Exception:
         pass
+    if ".jxl" not in exts and _find_djxl():
+        # 未装 pillow-jxl-plugin 时走随包 djxl CLI（BSD-3，开源/闭源均可捆绑）
+        exts.add(".jxl")
+    exts |= {".fits", ".fit", ".fts"}  # 内置迷你 FITS 解析器，恒可用
     if _find_imagemagick():
-        exts |= {".hdr", ".exr", ".fits", ".flif", ".bpg", ".jbig", ".jbg", ".pcd"}
+        exts |= {".hdr", ".exr", ".flif", ".bpg", ".jbig", ".jbg", ".pcd"}
     return exts
 
 
@@ -729,9 +870,31 @@ def make_thumbnail(file_path: str | Path, out_path: str | Path) -> tuple[int, in
                     im.save(out_path, "JPEG", quality=82, optimize=True, progressive=True)
                     return im.size
             except Exception as e:
-                # Pillow 打不开（冷门栅格：FITS/FLIF/BPG/HDR/EXR/PhotoCD…）
+                # Pillow 打不开 → 分层兜底：.jxl 走随包 djxl CLI（转 PNG 后
+                # 递归走正常缩略图链）；FITS 走内置迷你解析器；其余冷门
+                # 栅格走 ImageMagick CLI。
+                if ext in (".fits", ".fit", ".fts"):
+                    pil = _fits_to_pil(p)
+                    if pil is not None:
+                        im = ImageOps.exif_transpose(pil)
+                        im = _to_rgb(im)
+                        im.thumbnail((THUMB_MAX, THUMB_MAX))
+                        im.save(out_path, "JPEG", quality=82,
+                                optimize=True, progressive=True)
+                        return im.size
+                if ext == ".jxl" and _find_djxl():
+                    conv = _jxl_to_temp_png(p)
+                    if conv:
+                        try:
+                            return make_thumbnail(conv, out_path)
+                        finally:
+                            try:
+                                os.unlink(conv)
+                            except OSError:
+                                pass
+                # （FITS/FLIF/BPG/HDR/EXR/PhotoCD…）
                 # → ImageMagick CLI 兜底（对齐 digiKam 分层加载）。
-                log.debug("pillow thumbnail failed for %s: %s (fallback ImageMagick)", p, e)
+                log.debug("pillow thumbnail failed for %s: %s (fallback djxl/ImageMagick)", p, e)
                 return _imagemagick_thumbnail(p, out_path)
     except Exception as e:
         log.debug("thumbnail failed for %s: %s", p, e)

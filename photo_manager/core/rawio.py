@@ -156,9 +156,106 @@ def read_bgr(path: str | Path) -> np.ndarray:
                 return sniffed
             # 嗅探读图失败（截断/损坏）：退回上面的普通解码结果（可能是
             # 小缩略图），宁小也不抛，避免照片永久滞留待分析队列。
+        if img is None or max(img.shape[:2]) < _SNIFF_MIN_EDGE:
+            # 兜底链：cv2 解不出（或只解出小图）→ Pillow → ImageMagick CLI。
+            # 0.6.32 之前 OpenCV 解不了的格式（JPEG XL、冷门科学格式等）在这
+            # 条链上彻底失败，分析管线只能记「无法读取图片」；现在能解的
+            # 就能分析。失败照片 face_done/ocr_done 保持 0，工具中心按钮
+            # 自动重试，历史失败记录无需迁移。
+            alt = _read_fallback_bgr(p)
+            if alt is not None and (
+                    img is None or max(alt.shape[:2]) > max(img.shape[:2])):
+                img = alt
     if img is None:
         raise ValueError(f"无法读取图片: {p}")
     return img
+
+
+def _read_fallback_bgr(p: str) -> np.ndarray | None:
+    """cv2 解不出（或只解出小图）时的兜底读图，按收益排序：
+
+    1. Pillow：OpenCV 不认的常规格式——JPEG XL（装了 pillow-jxl-plugin 时
+       自动生效）、Pillow 11+ 原生 AVIF/WebP 变体、个别 cv2 解码失败但
+       Pillow 能解的编码变体；
+    2. ImageMagick CLI（系统装有才启用，extractor 同套探测）：FITS/HDR/
+       EXR/PhotoCD 等科学/冷门格式，转 JPEG 后读回。
+
+    仅在结果比 cv2 现有结果更大（或 cv2 完全失败）时被调用方采纳；
+    全部失败返回 None，由调用方决定退回或抛错。
+    """
+    import os  # noqa: PLC0415
+
+    try:
+        from PIL import Image  # noqa: PLC0415
+
+        with Image.open(p) as im:
+            im.load()
+            rgb = np.asarray(im.convert("RGB"))
+        if rgb.ndim == 3:
+            import cv2  # noqa: PLC0415
+
+            return cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+    except Exception:
+        pass
+    # 1.5) djxl（.jxl 且未装 pillow-jxl-plugin；bin/ 随包，BSD-3 可闭源捆绑）。
+    # 插件在装时上面的 Pillow 分支已覆盖 jxl，此分支只补插件缺席场景。
+    if os.path.splitext(p)[1].lower() == ".jxl":
+        try:
+            import cv2  # noqa: PLC0415
+            from photo_manager.core.extractor import _jxl_to_temp_png  # noqa: PLC0415
+
+            conv = _jxl_to_temp_png(p)
+            if conv:
+                try:
+                    img2 = cv2.imdecode(np.fromfile(conv, dtype=np.uint8),
+                                        cv2.IMREAD_COLOR)
+                    if img2 is not None:
+                        return img2
+                finally:
+                    try:
+                        os.unlink(conv)
+                    except OSError:
+                        pass
+        except Exception:
+            pass
+    # 1.6) FITS：自研迷你解析器（零依赖，见 core/fitsread.py），恒可用；
+    # 解析不了的变体（压缩图像等）仍落 IM 兜底
+    if os.path.splitext(p)[1].lower() in (".fits", ".fit", ".fts"):
+        try:
+            import cv2  # noqa: PLC0415
+            from photo_manager.core import fitsread  # noqa: PLC0415
+
+            arr, _err = fitsread.read_fits_array(p)
+            if arr is not None:
+                if arr.ndim == 2:
+                    return cv2.cvtColor(arr, cv2.COLOR_GRAY2BGR)
+                return cv2.cvtColor(arr, cv2.COLOR_RGB2BGR)
+        except Exception:
+            pass
+    try:
+        import tempfile  # noqa: PLC0415
+
+        # 惰性导入避免模块环：extractor 顶层 import rawio
+        from photo_manager.core.extractor import imagemagick_to_jpeg  # noqa: PLC0415
+
+        fd, tmp = tempfile.mkstemp(suffix=".jpg")
+        os.close(fd)
+        try:
+            if imagemagick_to_jpeg(p, tmp, max_edge=1920):
+                import cv2  # noqa: PLC0415
+
+                img = cv2.imdecode(np.fromfile(tmp, dtype=np.uint8),
+                                   cv2.IMREAD_COLOR)
+                if img is not None:
+                    return img
+        finally:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+    except Exception:
+        pass
+    return None
 
 
 def _read_container_bgr(p: str) -> np.ndarray | None:

@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 APP_NAME = "真昔"
-APP_VERSION = "0.7.1"
+APP_VERSION = "0.7.2"
 # 0.6.28：指向「帮助 → 开源许可 (GPLv3)」（即随包 LICENSE 文件的查看入口）——
 # 此前误写「见 帮助 → 关于」，而关于弹窗正是显示本串的地方，形成自我指向；
 # 0.6.29 补：GPLv3 只在此处出现一次，担保行改为指引「帮助 → 开源许可」不再重复
