@@ -105,7 +105,10 @@ class LibraryBridge(QObject):
     # 0.6.25 补25：扫描进度（已对比的代表脸数 / 总数）——弹窗内计数显示
     dupScanProgress = Signal(int, int)
     # 0.6.21 候选列表后台加载完成（真机假死修复：弹窗不再同步构建 500 对数据）
-    dupCandidatesReady = Signal("QVariant")
+    # 0.7.3b：改传 JSON 字符串——Signal("QVariant") 传 list[dict] 在麒麟
+    # PySide6 6.8 跨线程 emit → QML 转换不可靠（全库扫/锚点扫后候选均不
+    # 回填、弹窗空白；dev 6.11 正常），与全桥其余信号的 JSON str 模式统一
+    dupCandidatesReady = Signal(str)
 
     def __init__(self, db_path: str, parent=None):
         super().__init__(parent)
@@ -628,6 +631,11 @@ class LibraryBridge(QObject):
         key = (pid, face_id)
         if key in self._fc_seen:
             return
+        # 0.7.3：RAW 原图 PIL 解不开，worker 逐条报
+        # PIL.UnidentifiedImageError（真机日志刷屏）——与 HQ 队列
+        # _HQ_SKIP_EXTS 同口径直接跳过，头像保持缩略图裁剪兜底。
+        if Path(fpath).suffix.lower() in self._HQ_SKIP_EXTS:
+            return
         self._fc_seen.add(key)
         with self._fc_lock:
             if self._fc_thread is None:
@@ -940,6 +948,12 @@ class LibraryBridge(QObject):
                 f"UPDATE faces SET person_id=NULL WHERE person_id IN ({marks})",
                 pids)
             conn.execute(f"DELETE FROM persons WHERE id IN ({marks})", pids)
+            # 0.7.3b：候选对一并清掉（与 mergePersons/批量合并对齐；人物行
+            # 已删、INNER JOIN 会过滤，但 persons.id 无 AUTOINCREMENT，
+            # 聚类重建后 id 复用会让死行「复活」指向错误人物——显式清理）
+            conn.execute(
+                f"DELETE FROM person_dup_candidates WHERE a IN ({marks})"
+                f" OR b IN ({marks})", (*pids, *pids))
             conn.commit()
             self.message.emit(
                 _tr("已删除 {p1} 个人物（人脸回到未指派，照片不受影响）").format(p1=len(pids)))
@@ -1078,21 +1092,45 @@ class LibraryBridge(QObject):
         finally:
             conn.close()
 
-    @Slot(result="QVariant")
     def _emit_dup_progress(self, done: int, total: int) -> None:
         """0.6.28：进度信号同时落内存——dupScanStatus 可随时取（晚开弹窗
         立即显示「已对比 N / M」，不再错过信号窗口）。"""
         self._dup_scan_progress = (int(done), int(total))
         self.dupScanProgress.emit(int(done), int(total))
 
-    def dupScanStatus(self) -> dict:
+    # 0.7.3 修复：@Slot 曾误贴在 _emit_dup_progress 上，dupScanStatus 本体
+    # 没有装饰 → QML 调用报「dupScanStatus is not a function」，弹窗每次
+    # 打开 onOpened 都中断（不显示已存进度、不自动拉候选）。
+    # 0.7.3b：改返回 JSON 字符串（Slot(result="QVariant") 返回 dict 在
+    # 麒麟 6.8 转换同样不可靠，onOpened 在 _status() 处中断仍会空窗）。
+    @Slot(result=str)
+    def dupScanStatus(self) -> str:
         n = self.db.conn.execute(
             "SELECT COUNT(*) FROM person_dup_candidates WHERE ignored=0"
         ).fetchone()[0]
         with self._dup_lock:
             done, total = self._dup_scan_progress
-        return {"running": self._dup_scan_running, "count": n,
-                "done": done, "total": total}
+        return json.dumps(
+            {"running": self._dup_scan_running, "count": n,
+             "done": done, "total": total})
+
+    @Slot(int, result=str)
+    def personDisplayLabel(self, person_id: int) -> str:
+        """人物显示名（0.7.3b）：已命名→名称；未命名→界面显示编号
+        （跳过已命名人物后的重排序号，与人物页/person: 搜索同口径）。
+        疑似重复弹窗「仅看…」标签用——此前直显 persons.id，与界面
+        编号对不上（真机反馈）。"""
+        try:
+            r = self.db.conn.execute(
+                "SELECT p.name,"
+                " (SELECT COUNT(*) FROM persons p2 WHERE p2.id <= p.id"
+                "  AND (p2.name IS NULL OR p2.name=''))"
+                " FROM persons p WHERE p.id=?", (int(person_id),)).fetchone()
+        except Exception:
+            return f"人物 #{person_id}"
+        if not r:
+            return f"人物 #{person_id}"
+        return r[0] or f"人物 {r[1]}"
 
     def _dup_scan_worker(self) -> None:
         try:
@@ -1230,7 +1268,9 @@ class LibraryBridge(QObject):
                     conn.close()
             except Exception:
                 log.exception("疑似重复候选加载失败")
-            self.dupCandidatesReady.emit(out)
+            # 0.7.3b：JSON 字符串过桥（QVariant list[dict] 在麒麟 6.8 不可靠）
+            self.dupCandidatesReady.emit(
+                json.dumps(out, ensure_ascii=False))
             # 0.6.28：取走飞行期间缓存的新请求继续跑（无则收尾）
             with self._dup_cand_lock:
                 nxt = self._dup_cand_pending
@@ -1265,6 +1305,15 @@ class LibraryBridge(QObject):
         if not rows:
             return []
         pids = {p for r in rows for p in (r[0], r[1])}
+        # 0.7.3b：未命名人物兜底名改用界面显示编号（跳过已命名人物后的
+        # 重排序号，与人物页/搜索 person: 同口径）——此前用 persons.id，
+        # 弹窗行名与界面编号对不上（真机反馈"编号不一致"）
+        dno = {r[0]: r[1] for r in conn.execute(
+            "SELECT p.id,"
+            " (SELECT COUNT(*) FROM persons p2 WHERE p2.id <= p.id"
+            "  AND (p2.name IS NULL OR p2.name=''))"
+            " FROM persons p"
+            f" WHERE p.id IN ({','.join('?' * len(pids))})", list(pids))}
         counts = {r[0]: r[1] for r in conn.execute(
             "SELECT person_id, COUNT(DISTINCT photo_id) FROM faces"
             f" WHERE hidden=0 AND person_id IN ({','.join('?' * len(pids))})"
@@ -1295,7 +1344,8 @@ class LibraryBridge(QObject):
                 na, nb = nb, na
             # 补25：已命名人物显示真实名称（锚点模式放宽过滤后可能出现）
             item = {"a": a, "b": b, "sim": round(sim * 100),
-                    "aName": na or f"人物 #{a}", "bName": nb or f"人物 #{b}",
+                    "aName": na or f"人物 {dno.get(a, a)}",
+                    "bName": nb or f"人物 {dno.get(b, b)}",
                     "aCount": ca, "bCount": cb}
             for key, pid in (("avA", a), ("avB", b)):
                 av = self._face_avatar(pid, av_rows.get(pid))
@@ -1323,6 +1373,9 @@ class LibraryBridge(QObject):
         if getattr(sys, "frozen", False) and getattr(sys, "_MEIPASS", ""):
             candidates.append(Path(sys._MEIPASS) / name)
         candidates.append(Path(__file__).resolve().parent.parent / name)
+        # 0.7.3b：开发模式兜底项目根（photo_manager/ 平级）——打包环境
+        # _MEIPASS 已含 LICENSE/THIRD-PARTY-NOTICES.md，此路不影响打包
+        candidates.append(Path(__file__).resolve().parent.parent.parent / name)
         for p in candidates:
             if p.is_file():
                 try:
@@ -1417,8 +1470,11 @@ class LibraryBridge(QObject):
             return False
         pid = row[0]
         conn.execute("DELETE FROM faces WHERE id=?", (face_id,))
+        # 0.7.3：同步口径改为「可见人脸数」（hidden=0）——与 photoFaces /
+        # 信息面板一致，避免有隐藏标签的照片在删除误检后计数回弹
         conn.execute(
-            "UPDATE photos SET face_count=(SELECT COUNT(*) FROM faces WHERE photo_id=?)"
+            "UPDATE photos SET face_count="
+            "(SELECT COUNT(*) FROM faces WHERE photo_id=? AND hidden=0)"
             " WHERE id=?",
             (pid, pid),
         )
@@ -1587,6 +1643,10 @@ class LibraryBridge(QObject):
                         (op,)).fetchone()[0]
                     if left == 0 and not has_name:
                         conn.execute("DELETE FROM persons WHERE id=?", (op,))
+                        # 0.7.3b：空人物行删除时清候选对（防 id 复用复活死行）
+                        conn.execute(
+                            "DELETE FROM person_dup_candidates"
+                            " WHERE a=? OR b=?", (op, op))
             conn.commit()
             self.message.emit(_tr("已移动 {p1} 张人脸").format(p1=len(ids)))
             return len(ids)
@@ -5793,7 +5853,11 @@ class LibraryBridge(QObject):
         return ""
 
     def _face_search_names(self, res: list[tuple[int, float, int]]) -> dict[int, str]:
-        """命中人物的名字表（后台线程 → 独立 sqlite 连接，项目硬规则）。"""
+        """命中人物的显示名表（后台线程 → 独立 sqlite 连接，项目硬规则）。
+
+        0.7.3b：未命名人物不再返回 NULL 让标题兜底成「人物 #内部id」，
+        而是按界面口径给出重排编号「人物 N」（跳过已命名人物，与人物页
+        /person: 搜索/疑似重复弹窗同源）——内部 id 与界面编号不一致。"""
         import sqlite3
 
         pids = sorted({p for _, _, p in res if p})
@@ -5802,8 +5866,18 @@ class LibraryBridge(QObject):
         marks = ",".join("?" * len(pids))
         conn = sqlite3.connect(self.db.path, timeout=10)
         try:
-            return {r[0]: r[1] for r in conn.execute(
+            raw = {r[0]: (r[1] or "").strip() for r in conn.execute(
                 f"SELECT id, name FROM persons WHERE id IN ({marks})", pids)}
+            # 未命名的按界面口径编号（全库未命名人物按 id 顺序 1,2,…）
+            need_seq = [p for p in pids if not raw.get(p)]
+            seq: dict[int, int] = {}
+            if need_seq:
+                seq = {r[0]: i + 1 for i, r in enumerate(conn.execute(
+                    "SELECT id FROM persons"
+                    " WHERE name IS NULL OR name='' ORDER BY id"))}
+            return {p: raw.get(p)
+                    or _tr("人物 {p1}").format(p1=seq.get(p, p))
+                    for p in pids}
         finally:
             conn.close()
 
@@ -5811,6 +5885,8 @@ class LibraryBridge(QObject):
     def _face_group_title(person_id: int, names: dict[int, str]) -> str:
         if not person_id:
             return _tr("未指派人物")
+        # 0.7.3b：names 已是显示名（名称或界面编号「人物 N」）；
+        # 仍查不到的（人物行已删）以 #内部id 区别于界面编号
         return names.get(person_id) or f"人物 #{person_id}"
 
     @staticmethod
@@ -5974,13 +6050,27 @@ class LibraryBridge(QObject):
         """隐藏/取消隐藏人脸标签：只在人物列表、人脸搜索、信息面板里不显示。
 
         照片、检测数据与人物归属全部保留，完全可逆。
+        0.7.3：同步 photos.face_count（可见人脸数口径，与 photoFaces /
+        信息面板 / 高级搜索一致）——此前隐藏不回写存储列，信息面板摘要
+        读 photos.face_count 时与实际列表不一致。
         """
         conn = self.db.conn
-        if not conn.execute("SELECT 1 FROM faces WHERE id=?", (face_id,)).fetchone():
+        row = conn.execute(
+            "SELECT photo_id FROM faces WHERE id=?", (face_id,)).fetchone()
+        if not row:
             return False
+        pid = row[0]
         conn.execute("UPDATE faces SET hidden=? WHERE id=?",
                      (1 if hidden else 0, face_id))
+        conn.execute(
+            "UPDATE photos SET face_count="
+            "(SELECT COUNT(*) FROM faces WHERE photo_id=? AND hidden=0)"
+            " WHERE id=?",
+            (pid, pid),
+        )
         conn.commit()
+        # 刻意不发 photosChanged：批量隐藏是逐脸循环调用，逐次发信号会触发
+        # 等量的网格刷新；存储计数已同步，视图随下次选中/刷新自然取到新值
         self.message.emit(
             _tr("已隐藏该人脸标签") if hidden else _tr("已取消隐藏该人脸标签"))
         return True

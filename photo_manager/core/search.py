@@ -19,7 +19,8 @@
 语法：
   普通词        FTS 匹配（文件名/文件夹/相机/镜头 + OCR trigram）
   tag:a,b      标签（逗号=OR）
-  person:名     人物名（persons.name）
+  person:名     人物名（persons.name）；未命名人物按界面显示编号「人物 N」
+                （跳过已命名人物后顺序重排，与人物页一致，非 persons.id）
   camera:Canon  相机厂商/型号包含
   folder:dir    目录包含
   ext:raw       扩展名（raw/jpg/...）
@@ -248,12 +249,20 @@ def _cond_for(tok: str, prefix: bool, db=None) -> tuple[str, list]:
             parts = [v.strip() for v in val.split(",") if v.strip()]
             if not parts:
                 return "", []
-            # 未命名人物在库中 name 为 NULL，界面显示为 "人物 N"（见 LibraryBridge.people
-            # 的 COALESCE(name,'人物 '||id)）。此处必须用同样的 COALESCE，否则
-            # person:人物 永远匹配不到任何未命名人物（NULL LIKE 恒为假）。
+            # 未命名人物显示编号必须与 UI 一致（LibraryBridge._person_display_map
+            # 的口径）：跳过已命名人物后按 persons.id 顺序重排为「人物 1/2/…」——
+            # 一旦有任何人物被命名，id 编号与显示编号就错位（如 id=4 显示为
+            # 「人物 2」），按 persons.id 搜索会找不到或找错人。
+            # SQL 复现该序号 = 未命名人物中 id <= 当前行的个数；「未命名」判定
+            # 与显示映射同口径（name IS NULL 或空串）。此处必须 COALESCE 出
+            # 「人物 N」形式，否则 person:人物 永远匹配不到未命名人物。
             # 引号包裹的值精确匹配（=），否则模糊（LIKE）：
             # LIKE '%人物 2%' 会把 "人物 20/200" 一起命中，语义错误。
-            name_expr = "COALESCE(pe.name, '人物 ' || pe.id)"
+            seq_expr = ("(SELECT COUNT(*) FROM persons p2 WHERE p2.id <= pe.id"
+                        " AND (p2.name IS NULL OR p2.name=''))")
+            name_expr = f"COALESCE(NULLIF(pe.name,''), '人物 ' || {seq_expr})"
+            # f.hidden=0：与人物页照片数、信息面板同一「可见人脸」口径——
+            # 隐藏人脸标签后照片仍归该人物，但按人物搜照片不应再命中。
             conds: list[str] = []
             params: list = []
             for p in parts:
@@ -263,12 +272,12 @@ def _cond_for(tok: str, prefix: bool, db=None) -> tuple[str, list]:
                         continue
                     conds.append(
                         "EXISTS (SELECT 1 FROM faces f JOIN persons pe ON pe.id = f.person_id"
-                        f" WHERE f.photo_id = photos.id AND {name_expr} = ?)")
+                        f" WHERE f.photo_id = photos.id AND f.hidden=0 AND {name_expr} = ?)")
                     params.append(pv)
                 else:
                     conds.append(
                         "EXISTS (SELECT 1 FROM faces f JOIN persons pe ON pe.id = f.person_id"
-                        f" WHERE f.photo_id = photos.id AND {name_expr} LIKE ? ESCAPE '\\')")
+                        f" WHERE f.photo_id = photos.id AND f.hidden=0 AND {name_expr} LIKE ? ESCAPE '\\')")
                     params.append(f"%{_like_escape(p)}%")
             if not conds:
                 return "", []

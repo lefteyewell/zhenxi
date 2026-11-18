@@ -26,6 +26,7 @@ FirstRunDialog 1.0 FirstRunDialog.qml
 
 PersonFacesDialog 1.0 PersonFacesDialog.qml
 DuplicatePersonsDialog 1.0 DuplicatePersonsDialog.qml
+PersonSelectionPanel 1.0 PersonSelectionPanel.qml
 
 BadgeLegendDialog 1.0 BadgeLegendDialog.qml
 FacePickerDialog 1.0 FacePickerDialog.qml

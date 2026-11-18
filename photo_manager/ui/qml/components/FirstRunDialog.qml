@@ -76,7 +76,8 @@ Popup {
 
             Text {
                 Layout.alignment: Qt.AlignVCenter
-                text: I18n.tr("欢迎使用真昔")
+                /* 0.7.3b：与帮助菜单「首次使用引导…」同名（用户反馈名称统一） */
+                text: I18n.tr("首次使用引导")
                 font.family: Theme.fontFamily
                 font.pixelSize: 16
                 font.weight: Font.DemiBold

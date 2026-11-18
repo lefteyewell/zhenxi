@@ -111,6 +111,25 @@ Item {
         updateBatchBar()
     }
 
+    /* 0.7.3：按 id 从已载入分页取人物信息（右侧「已选人物」面板用）。
+       人物卡片只有渲染（随分页载入）后才可勾选，故通常必命中；
+       未命中返回 null，由调用方走 bridge 显示口径兜底。 */
+    function personInfo(pid) {
+        for (var i = 0; i < itemsModel.count; ++i) {
+            var it = itemsModel.get(i)
+            if (it.id === pid)
+                return { id: pid,
+                         name: it.name || "",
+                         photoCount: it.photoCount || 0,
+                         avatarSrc: it.avatarSrc || "",
+                         avatarX: it.avatarX || 0,
+                         avatarY: it.avatarY || 0,
+                         avatarW: it.avatarW || 0,
+                         avatarH: it.avatarH || 0 }
+        }
+        return null
+    }
+
     function refresh() {
         itemsModel.clear()
         if (kind === "people") {
@@ -259,7 +278,7 @@ Item {
                按钮位置固定不随勾选数跳动 */
             PMButton {
                 objectName: "categoryBatchBtn"
-                tooltip: I18n.tr("进入/退出选择模式，可勾选多个人物批量合并或删除")
+                tooltip: I18n.tr("进入/退出选择模式，可勾选多个人物批量合并或删除；多选期间右侧显示已选人物清单")
                 text: _batchMode ? I18n.tr("退出选择") : I18n.tr("选择")
                 width: 72
                 height: 30
@@ -686,7 +705,9 @@ Item {
                         anchors.horizontalCenter: parent.horizontalCenter
                         width: parent.width - 12
                         horizontalAlignment: Text.AlignHCenter
-                        text: model.name || (I18n.tr("人物 #") + model.id)
+                        /* 0.7.3b：兜底走 bridge 显示口径（名称/界面编号），
+                           不再显示内部 id——与界面编号对不上 */
+                        text: model.name || LibraryBridge.personDisplayLabel(model.id)
                         font.family: Theme.fontFamily
                         font.pixelSize: 12
                         font.weight: Font.DemiBold

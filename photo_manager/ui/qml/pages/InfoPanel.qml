@@ -27,7 +27,8 @@ import i18n 1.0
    · 固定区：预览 / 评级 / 旗标（高频操作，常驻）
    · 摘要区：拍摄时间、尺寸、人脸数等一眼可读的关键信息，无 "--" 噪音
    · 折叠区：拍摄参数 / OCR 文字 / 文件信息 默认收起，标题带摘要徽标，点击展开
-   · 人脸默认只显示 4 张，其余折叠进「+N」；标签单处呈现，点击=跳转、悬停=移除
+   · 人脸默认只显示 3 张（1 行，0.6.21 起），其余折叠进「还有 N 张」；
+     标签单处呈现，点击=跳转、悬停=移除
    点击预览可放大查看（弹窗，支持滚轮缩放、拖动平移、双击复位）。 */
 Rectangle {
     id: root
@@ -116,7 +117,8 @@ Rectangle {
         fileNameLine = d.name || "-"
         decodeWarn = d.decodeError === true
         ocrText = d.ocr || ""
-        faceCount = d.faces || 0
+        /* 0.7.3：faceCount 改由 refreshFaces 按 photoFaces 实时结果填充
+           （与下方人脸分区同一口径），不再读 photos.face_count 存储列 */
         /* 有真实 EXIF（除相机名外任一值）时自动展开参数区，否则保持收起 */
         exifOpen = paramLine.length > 0 || lensLine.length > 0 || !!d.lat
         ocrOpen = false
@@ -199,6 +201,10 @@ Rectangle {
             }
         }
         root.faceList = arr
+        /* 0.7.3：摘要区「人脸 N 张」与人脸分区统一用 photoFaces 实时口径
+           （hidden=0）。此前摘要读 photos.face_count 存储列，与实时列表在
+           「隐藏人脸标签」（setFaceHidden 不回写存储列）等场景下不一致 */
+        root.faceCount = arr.length
     }
 
     function refreshTags(tags) {
@@ -850,7 +856,9 @@ Rectangle {
                     }
                 }
 
-                /* ---- 人脸（默认展开；超过 4 张折叠，可展开全部） ---- */
+                /* ---- 人脸（默认展开；超过 3 张折叠，可展开全部；0.7.3 折叠
+                   阈值随 0.6.21 的「2 行→1 行」改为 3，此前 4 张时会藏起 1 张
+                   且「还有 N 张」少计 1） ---- */
                 Text {
                     visible: faceList.length > 0
                     text: root._sec(I18n.tr("人脸（点击指派人物）"), root.faceOpen,
@@ -974,9 +982,9 @@ Rectangle {
                     }
                 }
                 Text {
-                    visible: faceList.length > 4 && root.faceOpen
+                    visible: faceList.length > 3 && root.faceOpen
                     text: root.faceExpanded ? I18n.tr("▴ 收起其余人脸")
-                                            : I18n.tr("▾ 还有 ") + Math.max(0, faceList.length - 4) + I18n.tr(" 张，点击展开")
+                                            : I18n.tr("▾ 还有 ") + Math.max(0, faceList.length - 3) + I18n.tr(" 张，点击展开")
                     font.family: Theme.fontFamily
                     font.pixelSize: 11
                     color: Theme.primary

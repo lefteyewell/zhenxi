@@ -55,7 +55,8 @@ Dialog {
         LibraryBridge.dupCandidatesAsync(root.anchorPid || 0)
     }
 
-    function _status() { return LibraryBridge.dupScanStatus() }
+    /* 0.7.3b：状态改 JSON 字符串过桥（QVariant dict 在麒麟 6.8 转换不可靠） */
+    function _status() { return JSON.parse(LibraryBridge.dupScanStatus()) }
 
     onOpened: {
         /* 0.6.21：不再自动开全库扫描（真机反馈资源不可预期）——
@@ -103,15 +104,35 @@ Dialog {
                     root.messageRequested(I18n.tr("扫描完成：未发现疑似重复人物"), "info")
             }
         }
-        function onDupCandidatesReady(arr) {
+        function onDupCandidatesReady(jsonStr) {
+            /* 0.7.3 加固：loading 复位不再受 visible 门禁；计数文本先于
+               逐行 append 落位，单行 append 异常只丢该行并 console.warn，
+               不再把整次刷新吞掉（真机 0.7.1 曾卡死在「正在汇总…」）
+               0.7.3b：数据改 JSON 字符串过桥（QVariant list[dict] 在
+               麒麟 6.8 跨线程 emit → QML 转换不可靠，全库扫/锚点扫后
+               候选均不回填、弹窗空白） */
+            root.loading = false
             if (!root.visible)
                 return
-            root.loading = false
+            var arr = []
+            try {
+                arr = JSON.parse(jsonStr)
+            } catch (e) {
+                console.warn("疑似重复候选 JSON 解析失败:", e)
+                arr = []
+            }
             pairModel.clear()
-            for (var i = 0; i < arr.length; ++i)
-                pairModel.append(arr[i])
-            countText.text = pairModel.count > 0
-                ? I18n.tr("共 ") + pairModel.count + I18n.tr(" 组疑似重复")
+            var n = 0
+            for (var i = 0; i < arr.length; ++i) {
+                try {
+                    pairModel.append(arr[i])
+                    ++n
+                } catch (e) {
+                    console.warn("疑似重复候选行追加失败:", e)
+                }
+            }
+            countText.text = n > 0
+                ? I18n.tr("共 ") + n + I18n.tr(" 组疑似重复")
                 : (root.scanBusy ? I18n.tr("扫描中…") : I18n.tr("暂无候选"))
         }
     }
@@ -155,11 +176,15 @@ Dialog {
                 color: Theme.textDim
                 elide: Text.ElideRight
             }
-            /* 0.6.25 补24：锚点过滤提示与解除 */
+            /* 0.6.25 补24：锚点过滤提示与解除
+               0.7.3b：显示人物名/界面显示编号（personDisplayLabel）——
+               此前直显 persons.id，与界面「人物 N」编号对不上 */
             Text {
+                objectName: "dupAnchorLabel"
                 visible: root.anchorPid > 0
                 Layout.alignment: Qt.AlignVCenter
-                text: I18n.tr("仅看人物 #") + root.anchorPid
+                text: I18n.tr("仅看：") + (root.anchorPid > 0
+                      ? LibraryBridge.personDisplayLabel(root.anchorPid) : "")
                 font.family: Theme.fontFamily
                 font.pixelSize: 12
                 font.weight: Font.DemiBold

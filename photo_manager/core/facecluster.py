@@ -159,6 +159,10 @@ class FaceClusterer:
         except Exception as e:  # noqa: BLE001
             log.warning("读取既有命名字段失败（忽略，按全新聚类处理）：%s", e)
         conn.execute("DELETE FROM persons")
+        # 0.7.3b：候选表一并清空——persons.id 无 AUTOINCREMENT，重建后
+        # id 从头复用，旧候选对会经 INNER JOIN「复活」并指向错误人物。
+        # 重建语义本就是全新人物集，旧对一律失效。
+        conn.execute("DELETE FROM person_dup_candidates")
         from collections import Counter
 
         rep_counts = Counter(assign)

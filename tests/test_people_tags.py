@@ -17,6 +17,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """C2 单元测试：人物管理（重命名/新建/合并/拆分）与标签管理（重命名/合并）、
 时间线/统计/回收站桥接数据契约（直接调用 bridge，不依赖 QML）。"""
+import json
 import os
 import sys
 import tempfile
@@ -571,9 +572,10 @@ class TestDupPersons(_TempDB):
             self.bridge._dup_cand_pending = None
 
     def test_dup_scan_status_reports_progress(self):
-        """0.6.28：dupScanStatus 带最近进度——弹窗晚开也能立即显示计数。"""
+        """0.6.28：dupScanStatus 带最近进度——弹窗晚开也能立即显示计数。
+        0.7.3b：改返回 JSON 字符串（麒麟 6.8 QVariant dict 转换不可靠）。"""
         self.bridge._dup_scan_progress = (7, 10)
-        st = self.bridge.dupScanStatus()
+        st = json.loads(self.bridge.dupScanStatus())
         self.assertEqual((st["done"], st["total"]), (7, 10))
         self.assertIn("running", st)
 

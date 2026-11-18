@@ -1725,10 +1725,13 @@ ApplicationWindow {
                 }
             }
 
-            /* 右：信息面板 */
+            /* 右：信息面板
+               0.7.3：人物页多选期间被「已选人物」面板顶替（退出选择自动恢复）；
+               两者宽度口径一致，切换不跳动 */
             InfoPanel {
                 id: infoPanel
                 objectName: "infoPanel"
+                visible: !personSelPanel.visible
                 Layout.preferredWidth: ThemeController ? ThemeController.infoWidth : Theme.infoWidth
                 Layout.minimumWidth: 220
                 Layout.fillHeight: true
@@ -1760,6 +1763,27 @@ ApplicationWindow {
                         gallery.loadTag(value)
                     navState.current = 0
                 }
+            }
+
+            /* 0.7.3：人物页多选期间的右侧「已选人物」面板——实时列出已勾选
+               人物（头像/名称/照片数），点行上 ✕ 取消勾选（与网格勾选框
+               双向联动）；退出选择模式或离开人物页即隐藏、恢复信息栏。
+               须限定 navState.current===3：选择状态在人物页之间保留，
+               切去其他页不能把信息栏顶掉。
+               ⚠️ 三目而非 && 短路：仅在人物页时才读取 _batchMode 并注册
+               依赖；进选择模式必在人物页上发生，依赖届时已注册，全部
+               切换路径（进入/退出选择、离开/返回人物页）均覆盖 */
+            PersonSelectionPanel {
+                id: personSelPanel
+                objectName: "personSelPanel"
+                visible: navState.current === 3 ? peoplePage._batchMode : false
+                Layout.preferredWidth: ThemeController ? ThemeController.infoWidth : Theme.infoWidth
+                Layout.minimumWidth: 220
+                Layout.fillHeight: true
+                Layout.topMargin: Theme.spacingSmall
+                Layout.bottomMargin: Theme.spacingSmall
+                Layout.rightMargin: Theme.spacingSmall
+                page: peoplePage
             }
         }
 

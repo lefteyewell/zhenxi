@@ -376,6 +376,33 @@ class Database:
         self._migrate_raw_analysis_state()
         self._migrate_face_bbox_state()
         self._migrate_container_raw_reindex()
+        self._migrate_face_count_resync()
+
+    def _migrate_face_count_resync(self) -> None:
+        """0.7.3：photos.face_count 统一为「可见人脸数」（faces.hidden=0）。
+
+        此前 setFaceHidden 隐藏人脸标签不回写存储列，信息面板摘要（读
+        photos.face_count）与实时列表（hidden=0）不一致，高级搜索的
+        「人脸数」条件也把已隐藏的脸算进去。隐藏功能（FaceCleanDialog
+        批量隐藏误检脸）上线以来的历史库一并按现口径重算，只动计数有
+        偏差的行；faces 表无行的照片不涉及。meta.face_count_resync 保证
+        每库只执行一次。UPDATE 触发 photos_fts 同步（既有触发器行为）。
+        """
+        row = self.conn.execute(
+            "SELECT value FROM meta WHERE key='face_count_resync'").fetchone()
+        if row:
+            return
+        self.conn.execute(
+            "UPDATE photos SET face_count="
+            "(SELECT COUNT(*) FROM faces WHERE faces.photo_id=photos.id"
+            "  AND hidden=0)"
+            " WHERE face_count !="
+            " (SELECT COUNT(*) FROM faces WHERE faces.photo_id=photos.id"
+            "  AND hidden=0)"
+        )
+        self.conn.execute(
+            "INSERT OR REPLACE INTO meta(key, value)"
+            " VALUES ('face_count_resync', '1')")
 
     def _migrate_face_bbox_state(self) -> None:
         """0.6.31：一次性作废历史相机 RAW 的人脸框（人脸检测重跑一次）。

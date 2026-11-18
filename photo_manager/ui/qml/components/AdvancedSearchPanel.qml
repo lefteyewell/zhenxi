@@ -251,20 +251,35 @@ Popup {
                 color: Theme.textDim
                 width: 90
             }
-            TextField {
-                id: cameraField
-            objectName: "cameraField"
-                width: 150
-                height: 28
-                placeholderText: I18n.tr("Canon（可 a,b）")
-                color: Theme.text
-                font.pixelSize: 12
-                font.family: Theme.fontFamily
-                background: Rectangle {
-                    radius: 6
-                    color: Theme.bg
-                    border.width: 1
-                    border.color: Theme.divider
+            /* 0.7.3：每个输入框右侧加简短说明（措辞与 core/search.py 语法一致） */
+            Row {
+                spacing: 6
+                TextField {
+                    id: cameraField
+                    objectName: "cameraField"
+                    width: 150
+                    height: 28
+                    placeholderText: I18n.tr("Canon（可 a,b）")
+                    color: Theme.text
+                    font.pixelSize: 12
+                    font.family: Theme.fontFamily
+                    background: Rectangle {
+                        radius: 6
+                        color: Theme.bg
+                        border.width: 1
+                        border.color: Theme.divider
+                    }
+                }
+                Text {
+                    text: I18n.tr("匹配厂商/型号/镜头，多个用逗号隔开")
+                    width: 215
+                    font.family: Theme.fontFamily
+                    font.pixelSize: 10
+                    color: Theme.textDim
+                    wrapMode: Text.Wrap
+                    maximumLineCount: 2
+                    elide: Text.ElideRight
+                    anchors.verticalCenter: parent.verticalCenter
                 }
             }
 
@@ -275,20 +290,34 @@ Popup {
                 color: Theme.textDim
                 width: 90
             }
-            TextField {
-                id: tagField
-            objectName: "tagField"
-                width: 150
-                height: 28
-                placeholderText: I18n.tr("重要（可 a,b）")
-                color: Theme.text
-                font.pixelSize: 12
-                font.family: Theme.fontFamily
-                background: Rectangle {
-                    radius: 6
-                    color: Theme.bg
-                    border.width: 1
-                    border.color: Theme.divider
+            Row {
+                spacing: 6
+                TextField {
+                    id: tagField
+                    objectName: "tagField"
+                    width: 150
+                    height: 28
+                    placeholderText: I18n.tr("重要（可 a,b）")
+                    color: Theme.text
+                    font.pixelSize: 12
+                    font.family: Theme.fontFamily
+                    background: Rectangle {
+                        radius: 6
+                        color: Theme.bg
+                        border.width: 1
+                        border.color: Theme.divider
+                    }
+                }
+                Text {
+                    text: I18n.tr("标签名，多个用逗号隔开")
+                    width: 215
+                    font.family: Theme.fontFamily
+                    font.pixelSize: 10
+                    color: Theme.textDim
+                    wrapMode: Text.Wrap
+                    maximumLineCount: 2
+                    elide: Text.ElideRight
+                    anchors.verticalCenter: parent.verticalCenter
                 }
             }
 
@@ -299,20 +328,35 @@ Popup {
                 color: Theme.textDim
                 width: 90
             }
-            TextField {
-                id: personField
-            objectName: "personField"
-                width: 150
-                height: 28
-                placeholderText: I18n.tr("王老师")
-                color: Theme.text
-                font.pixelSize: 12
-                font.family: Theme.fontFamily
-                background: Rectangle {
-                    radius: 6
-                    color: Theme.bg
-                    border.width: 1
-                    border.color: Theme.divider
+            Row {
+                spacing: 6
+                TextField {
+                    id: personField
+                    objectName: "personField"
+                    width: 150
+                    height: 28
+                    placeholderText: I18n.tr("王老师")
+                    color: Theme.text
+                    font.pixelSize: 12
+                    font.family: Theme.fontFamily
+                    background: Rectangle {
+                        radius: 6
+                        color: Theme.bg
+                        border.width: 1
+                        border.color: Theme.divider
+                    }
+                }
+                Text {
+                    /* 未命名人物按界面重排编号「人物 N」（与人物页一致），见 search.py */
+                    text: I18n.tr("人物名称或「人物 N」编号，逗号隔开")
+                    width: 215
+                    font.family: Theme.fontFamily
+                    font.pixelSize: 10
+                    color: Theme.textDim
+                    wrapMode: Text.Wrap
+                    maximumLineCount: 2
+                    elide: Text.ElideRight
+                    anchors.verticalCenter: parent.verticalCenter
                 }
             }
 
@@ -323,20 +367,34 @@ Popup {
                 color: Theme.textDim
                 width: 90
             }
-            TextField {
-                id: gpsField
-            objectName: "gpsField"
-                width: 150
-                height: 28
-                placeholderText: "39.9,116.3,5"
-                color: Theme.text
-                font.pixelSize: 12
-                font.family: Theme.fontFamily
-                background: Rectangle {
-                    radius: 6
-                    color: Theme.bg
-                    border.width: 1
-                    border.color: Theme.divider
+            Row {
+                spacing: 6
+                TextField {
+                    id: gpsField
+                    objectName: "gpsField"
+                    width: 150
+                    height: 28
+                    placeholderText: "39.9,116.3,5"
+                    color: Theme.text
+                    font.pixelSize: 12
+                    font.family: Theme.fontFamily
+                    background: Rectangle {
+                        radius: 6
+                        color: Theme.bg
+                        border.width: 1
+                        border.color: Theme.divider
+                    }
+                }
+                Text {
+                    text: I18n.tr("纬度,经度,半径公里；也可直接填地名")
+                    width: 215
+                    font.family: Theme.fontFamily
+                    font.pixelSize: 10
+                    color: Theme.textDim
+                    wrapMode: Text.Wrap
+                    maximumLineCount: 2
+                    elide: Text.ElideRight
+                    anchors.verticalCenter: parent.verticalCenter
                 }
             }
 
@@ -347,20 +405,34 @@ Popup {
                 color: Theme.textDim
                 width: 90
             }
-            TextField {
-                id: facesField
-            objectName: "facesField"
-                width: 150
-                height: 28
-                placeholderText: "2 / 0 / >2"
-                color: Theme.text
-                font.pixelSize: 12
-                font.family: Theme.fontFamily
-                background: Rectangle {
-                    radius: 6
-                    color: Theme.bg
-                    border.width: 1
-                    border.color: Theme.divider
+            Row {
+                spacing: 6
+                TextField {
+                    id: facesField
+                    objectName: "facesField"
+                    width: 150
+                    height: 28
+                    placeholderText: "2 / 0 / >2"
+                    color: Theme.text
+                    font.pixelSize: 12
+                    font.family: Theme.fontFamily
+                    background: Rectangle {
+                        radius: 6
+                        color: Theme.bg
+                        border.width: 1
+                        border.color: Theme.divider
+                    }
+                }
+                Text {
+                    text: I18n.tr("检出人脸数量，可写 >2、>=2")
+                    width: 215
+                    font.family: Theme.fontFamily
+                    font.pixelSize: 10
+                    color: Theme.textDim
+                    wrapMode: Text.Wrap
+                    maximumLineCount: 2
+                    elide: Text.ElideRight
+                    anchors.verticalCenter: parent.verticalCenter
                 }
             }
 
@@ -371,20 +443,34 @@ Popup {
                 color: Theme.textDim
                 width: 90
             }
-            TextField {
-                id: ratingField
-            objectName: "ratingField"
-                width: 150
-                height: 28
-                placeholderText: ">=3 / 5 / 0"
-                color: Theme.text
-                font.pixelSize: 12
-                font.family: Theme.fontFamily
-                background: Rectangle {
-                    radius: 6
-                    color: Theme.bg
-                    border.width: 1
-                    border.color: Theme.divider
+            Row {
+                spacing: 6
+                TextField {
+                    id: ratingField
+                    objectName: "ratingField"
+                    width: 150
+                    height: 28
+                    placeholderText: ">=3 / 5 / 0"
+                    color: Theme.text
+                    font.pixelSize: 12
+                    font.family: Theme.fontFamily
+                    background: Rectangle {
+                        radius: 6
+                        color: Theme.bg
+                        border.width: 1
+                        border.color: Theme.divider
+                    }
+                }
+                Text {
+                    text: I18n.tr("1–5 星，0=未评级，可写 >=3")
+                    width: 215
+                    font.family: Theme.fontFamily
+                    font.pixelSize: 10
+                    color: Theme.textDim
+                    wrapMode: Text.Wrap
+                    maximumLineCount: 2
+                    elide: Text.ElideRight
+                    anchors.verticalCenter: parent.verticalCenter
                 }
             }
 

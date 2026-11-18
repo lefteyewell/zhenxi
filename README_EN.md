@@ -5,10 +5,41 @@ EXIF / folders / arbitrary combinations), thumbnails and full-size viewing,
 batch export at common resolutions — **the app never deletes or modifies your original
 files**.
 
-## Latest release v0.7.2 (2026-11-18)
+## Latest release v0.7.4 (2026-11-18)
 
 > 📥 Download: [Releases page](https://github.com/lefteyewell/zhenxi/releases) ｜
 > 📋 All version changes: [CHANGELOG.md](CHANGELOG.md)
+
+**Fixed**
+
+- **The "similar persons" dialog stayed blank on Kylin** - after a library-wide scan, searching for one person's duplicates showed no results; the root cause was unreliable cross-thread signal payloads on Kylin's Qt build. All such data now crosses threads as JSON text (the 0.7.3 hardening only mitigated this)
+- **The dialog's "focus: Person N" label pointed at the wrong person** - all person labels inside the dialog now use the same re-ordered numbering as the people page
+- **Stale duplicate-person candidates resurfaced after renaming / merging / deleting persons** - recycled internal IDs made dead candidates point at another person; all three paths now clean up the candidate table
+- **The ✕ on "Selected persons" rows did not respond** - the row's hover area swallowed the button press; ✕ now equals unchecking the row
+
+**Improved**
+
+- **The "User guide" dialog is now an outline** - chapter list on the left, content on the right; titles unified with menu entries; the first-run dialog is titled "First-run guide"; the license dialog gained a Chinese reference tab (unofficial translation)
+- **Advanced search field hints** - short explanations beside the camera→rating inputs (person name or number, GPS accepts place names, >/&gt;= comparisons supported)
+
+<details>
+<summary>Previous release v0.7.3 (2026-11-18) summary</summary>
+
+**New**
+
+- **"Selected persons" panel on the people page during multi-select** - when entering selection mode the info panel is replaced by a list of checked persons (avatar / name / photo count) that updates instantly; an ✕ on each row unchecks directly, reducing mis-selection risk. Leaving selection mode or the people page restores the info panel
+
+**Fixed**
+
+- **Face count in the photo info panel drifted** - hiding a face updated neither the summary counter nor the advanced-search "face count" filter; both now follow the visible-face count in real time, and existing libraries are resynced automatically (once per database, no action needed)
+- **The "N more" expander was missing with exactly 4 faces** - the collapse threshold did not match the single-row display, silently hiding one face without offering the expander
+- **Searching by person number failed** - `person:` used internal IDs while the UI shows re-ordered numbers (renaming any person shifts them); search now matches the displayed numbers exactly
+- **The "similar persons" dialog errored on open and could stall at "summarizing…"** - a misplaced decorator made the status lookup "not a function", aborting dialog initialization; candidate list refresh is now fault-tolerant per row
+
+</details>
+
+<details>
+<summary>Previous release v0.7.2 (2026-11-18) summary</summary>
 
 **New**
 
@@ -20,6 +51,8 @@ files**.
 **Improved**
 
 - **Help "Exceptions" section updated**: .jxl now "supported out of the box"; FITS removed from the ImageMagick-dependency list; video playback decoding is built into the program (Qt's FFmpeg backend decodes H.264/HEVC natively — no system codec extension needed)
+
+</details>
 
 <details>
 <summary>Previous release v0.7.1 (2026-11-15) summary</summary>
