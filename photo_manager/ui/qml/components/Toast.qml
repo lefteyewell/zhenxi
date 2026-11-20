@@ -40,8 +40,12 @@ Rectangle {
     z: 1000
 
     property string _kind: "success"
+    /* 0.7.5：点击动作回调——showAction(text, kind, cb) 时点击触发 cb
+       （如「扫描完成，点击查看」重开弹窗），普通 show 点击仍只关闭 */
+    property var _action: null
 
     function show(text, kind) {
+        root._action = null
         root._kind = kind || "success"
         if (root._kind === "error") root.color = Theme.danger
         else if (root._kind === "warning") root.color = Theme.warning
@@ -52,6 +56,11 @@ Rectangle {
         root.visible = true
         animIn.restart()
         hideTimer.restart()
+    }
+
+    function showAction(text, kind, cb) {
+        root.show(text, kind)   /* show 先清旧回调防串台 */
+        root._action = cb
     }
 
     Text {
@@ -71,6 +80,16 @@ Rectangle {
         color: "white"
     }
 
+    /* 点击/关闭统一入口（0.7.5 抽出：动作回调 + 收起，便于探针直调） */
+    function dismiss() {
+        hideTimer.stop()
+        var cb = root._action
+        root._action = null
+        animOut.start()
+        if (cb)
+            cb()
+    }
+
     /* 悬停暂停倒计时（看得慢可以慢慢看）；点击立即关闭 */
     MouseArea {
         id: toastHover
@@ -85,10 +104,7 @@ Rectangle {
             else
                 hideTimer.restart()
         }
-        onClicked: {
-            hideTimer.stop()
-            animOut.start()
-        }
+        onClicked: root.dismiss()
     }
 
     NumberAnimation {

@@ -59,19 +59,17 @@ Dialog {
     function _status() { return JSON.parse(LibraryBridge.dupScanStatus()) }
 
     onOpened: {
-        /* 0.6.21：不再自动开全库扫描（真机反馈资源不可预期）——
-           扫描由入口显式触发（人物页「查找疑似重复」锚点扫 / 本弹窗
-           「全库扫描」按钮），这里只反映状态 + 拉候选
+        /* 0.6.21：扫描由入口显式触发（人物页「查找疑似重复」锚点扫），
+           这里只反映状态 + 拉候选
+           0.7.7：全库扫描按钮已移除——查重只支持按人查（勾选 1 个
+           人物），弹窗内不再提供全库扫描入口
            0.6.28：扫描中不再显示上次的候选列表（真机反馈"看到旧结果
            分不清本次有没有在扫"）——清空列表、立即显示已存进度 */
         var s = _status()
         scanBusy = s.running === true
         if (scanBusy) {
             pairModel.clear()
-            var d = s.done || 0, t = s.total || 0
-            countText.text = d >= t && t > 0
-                ? I18n.tr("全部对比完毕（") + t + I18n.tr(" 张人脸），正在汇总…")
-                : I18n.tr("已对比 ") + d + " / " + Math.max(t, 1) + I18n.tr(" 张人脸")
+            countText.text = _progressText(s.done || 0, s.total || 0)
         } else {
             countText.text = I18n.tr("加载中…")
             reload()
@@ -81,20 +79,75 @@ Dialog {
     /* 扫描在后台跑：完成信号到达时（弹窗开着就）刷新列表 */
     property bool scanBusy: false
     property bool loading: false
+    /* 0.7.4b：扫描耗时展示——scanBusy 拉真时记起点，进度文案带
+       已用时长与按当前速率的预计剩余（弹窗侧计时，晚开弹窗从其
+       知晓时刻起算，不影响进度计数本身的准确性） */
+    property real scanStartTs: 0
+    onScanBusyChanged: if (scanBusy) scanStartTs = Date.now()
+    /* 0.7.4b：当前排队的锚点人物（经 dupQueuedChanged 信号响应式更新——
+       绑定里直接调桥接方法不进依赖图，入队/出队不会触发重估） */
+    property int queuedPid: 0
+
+    function _fmtDur(sec) {
+        sec = Math.max(0, Math.round(sec))
+        var m = Math.floor(sec / 60)
+        var s = sec % 60
+        return (m < 10 ? "0" + m : "" + m) + ":" + (s < 10 ? "0" + s : "" + s)
+    }
+
+    function _progressText(done, total) {
+        /* 0.7.5：total 未知（扫描刚启动/桥接初值 0）统一显示「扫描中…」，
+           不再裸显——此前不同入口分别出现「扫描中…」「已对比 0 / 1」
+           「加载中…」三种等待口径；现等待口径统一为：扫描中→本函数，
+           加载候选→「加载中…」 */
+        var el = (Date.now() - scanStartTs) / 1000
+        var s
+        if (total > 0) {
+            total = Math.max(total, 1)
+            done = Math.min(Math.max(done, 0), total)
+            if (done >= total && total > 1)
+                s = I18n.tr("全部对比完毕（") + total + I18n.tr(" 张人脸），正在汇总…")
+            else
+                s = I18n.tr("已对比 ") + done + " / " + total + I18n.tr(" 张人脸")
+            if (done > 0 && total > done)
+                s += I18n.tr(" · 预计还需约 ") + _fmtDur(el * (total - done) / done)
+        } else {
+            s = I18n.tr("扫描中…")
+        }
+        return s + I18n.tr(" · 已用 ") + _fmtDur(el)
+    }
+
     Connections {
         target: LibraryBridge
+        /* 0.7.4b：排队状态响应式跟踪（入队=pid，出队=0） */
+        function onDupQueuedChanged(pid) {
+            root.queuedPid = pid
+        }
         /* 0.6.25 补25：扫描进度在弹窗内以计数显示（不用进度条）——
            累加"已对比 N / M 张人脸"直到全部对比完毕 */
         function onDupScanProgress(done, total) {
             if (!root.visible)
                 return
             root.scanBusy = true
-            countText.text = done >= total
-                ? I18n.tr("全部对比完毕（") + total + I18n.tr(" 张人脸），正在汇总…")
-                : I18n.tr("已对比 ") + done + " / " + total + I18n.tr(" 张人脸")
+            countText.text = root._progressText(done, total)
         }
         function onDupScanFinished(n) {
             root.scanBusy = false
+            /* 0.7.4b：n<0 = 扫描异常或锚点无可用代表脸——此前无任何分支，
+               弹窗按死锚点过滤显示空列表且无解释（补跑排队期间锚点人物
+               被合并/删除时同样命中）；现明确提示并解除锚点过滤 */
+            if (n < 0) {
+                if (root.anchorPid > 0) {
+                    root.messageRequested(
+                        I18n.tr("所选人物没有可用于对比的人脸，已显示全部候选"), "warning")
+                    root.anchorPid = 0
+                } else {
+                    root.messageRequested(I18n.tr("扫描失败，请重试"), "error")
+                }
+                if (root.visible)
+                    root.reload()
+                return
+            }
             if (root.visible) {
                 root.reload()
                 if (n > 0)
@@ -115,9 +168,11 @@ Dialog {
             if (!root.visible)
                 return
             var arr = []
+            var parseOk = true
             try {
                 arr = JSON.parse(jsonStr)
             } catch (e) {
+                parseOk = false
                 console.warn("疑似重复候选 JSON 解析失败:", e)
                 arr = []
             }
@@ -131,13 +186,27 @@ Dialog {
                     console.warn("疑似重复候选行追加失败:", e)
                 }
             }
-            countText.text = n > 0
-                ? I18n.tr("共 ") + n + I18n.tr(" 组疑似重复")
-                : (root.scanBusy ? I18n.tr("扫描中…") : I18n.tr("暂无候选"))
+            /* 0.7.4b：解析失败不再误报「暂无候选」——明确区分加载失败 */
+            countText.text = !parseOk
+                ? I18n.tr("候选数据加载失败，请关闭弹窗后重试")
+                : (n > 0 ? I18n.tr("共 ") + n + I18n.tr(" 组疑似重复")
+                         : (root.scanBusy ? I18n.tr("扫描中…") : I18n.tr("暂无候选")))
         }
     }
 
     ListModel { id: pairModel }
+
+    /* 0.7.4b：扫描中每秒刷新耗时/预计剩余（进度信号间隙也走秒） */
+    Timer {
+        interval: 1000
+        running: root.scanBusy && root.visible
+        repeat: true
+        onTriggered: {
+            var s = root._status()
+            if (s.running === true)
+                countText.text = root._progressText(s.done || 0, s.total || 0)
+        }
+    }
 
     background: Rectangle {
         color: Theme.surface
@@ -202,22 +271,6 @@ Dialog {
                 }
             }
             PMButton {
-                objectName: "dupRescanBtn"
-                text: I18n.tr("全库扫描")
-                height: 28
-                enabled: !root.scanBusy
-                Layout.alignment: Qt.AlignVCenter
-                tooltip: I18n.tr("对照片数前 1500 的未命名人物做全对全扫描（推荐先用人物页的「查找疑似重复」按人查）")
-                onClicked: {
-                    root.anchorPid = 0
-                    root.scanBusy = true
-                    /* 0.6.28：开扫即清旧列表——不再让上次结果显示在本次扫描期间 */
-                    pairModel.clear()
-                    countText.text = I18n.tr("扫描中…")
-                    LibraryBridge.dupScanStart()
-                }
-            }
-            PMButton {
                 text: I18n.tr("关闭")
                 height: 28
                 Layout.alignment: Qt.AlignVCenter
@@ -231,10 +284,33 @@ Dialog {
             Layout.rightMargin: Theme.spacingMedium
             text: I18n.tr("相似度在聚类阈值边缘、可能是同一个人的未命名人物组合。"
                           + "合并方向：一方已命名（改过名）时并入该方，"
-                          + "否则并入照片数多的一方（只改归属标签，照片不受影响）。")
+                          + "否则并入照片数多的一方（只改归属标签，照片不受影响）。"
+                          + "扫描在后台进行，关闭本弹窗不会中断；完成后底部会提示结果，点击可直接回到这里。"
+                          + "扫描进行中再次发起查找会自动排队，当前扫描完成后依次执行。")
             font.family: Theme.fontFamily
             font.pixelSize: 11
             color: Theme.textDim
+            wrapMode: Text.Wrap
+        }
+
+        /* 0.7.4b：排队状态——锚点请求在单飞行互斥期被排队后，弹窗内
+           常驻提示（此前只有一次性底部 toast，用户看不出自己的扫描
+           在等）；排队请求会在当前扫描完成后自动补跑 */
+        Text {
+            objectName: "dupQueueHint"
+            Layout.fillWidth: true
+            Layout.leftMargin: Theme.spacingMedium
+            Layout.rightMargin: Theme.spacingMedium
+            visible: root.scanBusy && root.anchorPid > 0
+                     && root.queuedPid === root.anchorPid
+            text: I18n.tr("排队中：当前扫描完成后将自动按「")
+                  + (root.anchorPid > 0
+                     ? LibraryBridge.personDisplayLabel(root.anchorPid) : "")
+                  + I18n.tr("」补扫")
+            font.family: Theme.fontFamily
+            font.pixelSize: 11
+            font.weight: Font.DemiBold
+            color: Theme.primary
             wrapMode: Text.Wrap
         }
 
@@ -425,7 +501,7 @@ Dialog {
                     visible: pairModel.count === 0
                     text: root.scanBusy
                           ? I18n.tr("正在扫描未命名人物代表脸…")
-                          : I18n.tr("暂无候选：在人物页勾选 1 个人物点「查找疑似重复」，或点上方「全库扫描」")
+                          : I18n.tr("暂无候选。在人物页勾选 1 个人物后点「查找疑似重复」开始扫描")
                     font.family: Theme.fontFamily
                     font.pixelSize: 13
                     color: Theme.textDim

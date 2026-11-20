@@ -35,7 +35,7 @@ Item {
     signal renameRequested(int personId, string name)
     signal mergeRequested(int personId, string name)
     signal batchMergeRequested(var ids)
-    signal dupRequested()   /* 0.6.20 疑似重复人物（仅 people） */
+    /* 0.7.7：疑似重复只支持按人查，dupRequested（全库扫描入口）已移除 */
     signal dupForRequested(int pid)   /* 0.6.21 锚点扫描：以选中人物为基准查疑似重复 */
 
     ListModel { id: itemsModel }
@@ -338,25 +338,23 @@ Item {
                     onTriggered: root._confirmDelete = false
                 }
             }
-            /* 疑似重复：未进入选择/勾选 0 个=全库扫描入口（原独立按钮功能）；
-               勾选 1 个=以该人物为锚点扫描；勾选多个=置灰（改用合并/删除） */
+            /* 0.7.7：疑似重复只能按人查——勾选恰 1 个人物才可用；
+               未勾选/勾选多个均置灰（原全库扫描入口随 dupRequested 一并移除） */
             PMButton {
                 objectName: "dupPersonsBtn"
                 tooltip: root.selectedIds.length === 1
-                         ? I18n.tr("以选中人物为基准，扫描其余人物中可能是同一人的组合（轻量，只与这一个人比较）")
+                         ? I18n.tr("在后台比对该人物与全库其他人物（含已命名）；可关闭弹窗继续其他操作，完成后底部提示结果；扫描进行中再次发起会自动排队")
                          : (root.selectedIds.length >= 2
-                            ? I18n.tr("已勾选多个人物：请改用合并/删除，或取消勾选后再查重")
-                            : I18n.tr("扫描未命名人物中可能是同一个人的组合，支持批量合并"))
+                            ? I18n.tr("一次只能按 1 个人物查重：请只勾选 1 个人物（当前已选 ") + root.selectedIds.length + I18n.tr(" 个）")
+                            : I18n.tr("请先点「选择」勾选 1 个人物，再查找疑似重复"))
                 text: I18n.tr("查找疑似重复")
                 width: 104
                 height: 30
                 visible: kind === "people"
-                enabled: root.selectedIds.length <= 1
+                enabled: root.selectedIds.length === 1
                 onClicked: {
                     if (root.selectedIds.length === 1)
                         root.dupForRequested(root.selectedIds[0])
-                    else
-                        root.dupRequested()
                 }
             }
             Text {

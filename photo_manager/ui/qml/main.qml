@@ -1461,12 +1461,21 @@ ApplicationWindow {
                         peoplePage.selectedIds = []
                         peoplePage.updateBatchBar()
                     }
-                    onDupRequested: dupPersonsDialog.openDialog()
-                    /* 0.6.21 锚点扫描：先扫选中人物（后台），再开弹窗看结果
-                       0.6.25 补24：弹窗按锚点过滤，只显示与此人的候选对 */
+                    /* 0.7.7：dupRequested（全库扫描入口）已移除——
+                       查重只支持按人查，入口仅剩 onDupForRequested
+                       0.6.21 锚点扫描：先扫选中人物（后台），再开弹窗看结果
+                       0.6.25 补24：弹窗按锚点过滤，只显示与此人的候选对
+                       0.7.4b：返回 "queued" = 全库扫描互斥期已排队，完成后
+                       自动按本人物补扫（此前静默拒绝→弹窗展示他扫的进度、
+                       toast 报他扫的结果数而锚点列表空，真机反馈"提示有
+                       结果却显示不出"） */
                     onDupForRequested: (pid) => {
                         dupPersonsDialog.anchorPid = pid
-                        LibraryBridge.dupScanFor(pid)
+                        var r = LibraryBridge.dupScanFor(pid)
+                        if (r === "queued")
+                            toastLayer.show(
+                                I18n.tr("全库扫描进行中，完成后将自动按所选人物重扫"),
+                                "info")
                         dupPersonsDialog.openDialog()
                     }
                 }
@@ -2424,6 +2433,26 @@ ApplicationWindow {
         id: dupPersonsDialog
         onMessageRequested: (msg, kind) => toastLayer.show(msg, kind)
         onVisibleChanged: if (visible) peoplePage.refresh()
+    }
+
+    /* 0.7.5：扫描完成时弹窗若已关闭——底部提示结果并可点击重开。
+       扫描本就在后台线程进行（关闭弹窗不影响结果落库），此前完成
+       提示只在弹窗开着时弹，关闭后静默完成用户无从得知。弹窗开着
+       时由弹窗内 Connections 处理，这里只兜底弹窗已关的情形 */
+    Connections {
+        target: LibraryBridge
+        function onDupScanFinished(n) {
+            if (dupPersonsDialog.visible)
+                return
+            if (n > 0)
+                toastLayer.showAction(
+                    I18n.tr("疑似重复扫描完成：发现 ") + n + I18n.tr(" 组，点击查看"),
+                    "success", function () { dupPersonsDialog.openDialog() })
+            else if (n === 0)
+                toastLayer.show(I18n.tr("疑似重复扫描完成：未发现疑似重复人物"), "success")
+            else
+                toastLayer.show(I18n.tr("疑似重复扫描失败，请重试"), "error")
+        }
     }
 
     /* 0.6.21：照片标志图例——窗口级声明（Popup 需在窗口级，见 popupGate

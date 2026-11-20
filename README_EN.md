@@ -5,10 +5,51 @@ EXIF / folders / arbitrary combinations), thumbnails and full-size viewing,
 batch export at common resolutions — **the app never deletes or modifies your original
 files**.
 
-## Latest release v0.7.4 (2026-11-18)
+## Latest release v0.7.7 (2026-11-20)
 
 > 📥 Download: [Releases page](https://github.com/lefteyewell/zhenxi/releases) ｜
 > 📋 All version changes: [CHANGELOG.md](CHANGELOG.md)
+
+**Changed**
+
+- **"Find likely duplicates" now requires exactly 1 person checked** - the people-page button is disabled (with a hint) when nothing or multiple people are checked ("click Select and check 1 person first" / "only 1 person can be checked for duplicate search"); background scanning, closing the dialog without interrupting, and automatic queueing are unchanged
+- **Library-wide scan entry removed** - the "Scan all" button inside the dialog and the scan-when-nothing-checked entry are gone; duplicate search is per-person only. "Show all" merely clears the person filter and never starts a scan
+- **Help and hint texts updated** - help now states when the button is available; the empty-list hint guides users to check 1 person first
+
+<details>
+<summary>Previous release v0.7.6 (2026-11-19) summary</summary>
+
+**Fixed**
+
+- **Inconsistent top hints in the "similar persons" dialog depending on entry point** - waiting states mixed three phrasings ("Scanning…", "compared 0 / 1 faces", "Loading…"); scan waits now uniformly show "Scanning… · elapsed mm:ss" (with counts and ETA once known), and only candidate loading shows "Loading…"
+- **Entering from the menu kept the previous "focus: Person X" filter** - the menu/library entry is meant to browse all candidates but could show a filtered subset; it now resets to show everything
+- **The people-page search button tooltip did not match reality** - the old text said "compares this one person only" while the scan actually compares the whole library (named included); rewritten
+
+**Improved**
+
+- **Completion reminder for background scans** - scans already ran in the background and closing the dialog didn't interrupt them, but the completion toast only appeared while the dialog was open; now a toast reports "found N groups; tap to view" when the dialog is closed, and tapping reopens the dialog. "No groups found" and failure are reported too
+- **Dialog text and tooltips now describe background/queue behavior** - scans run in the background, closing the dialog doesn't interrupt, and repeated searches queue automatically
+
+</details>
+
+<details>
+<summary>Previous release v0.7.5 (2026-11-19) summary</summary>
+
+**Fixed**
+
+- **"Result count shown, but the list stayed empty" when searching similar persons** - when searching for several persons in a row, or while a library-wide scan was still running, the new scan request was silently dropped while the dialog still opened, showing the *previous* scan's progress and result count; the list was filtered by the current person whose scan never ran, so it appeared empty intermittently. Requests during a busy period are now queued, and the selected person is rescanned automatically once the current scan finishes
+- **No feedback when the selected person had no usable faces or the scan failed** - the dialog now says so explicitly and clears the anchor filter to show all candidates; a failed library-wide scan reports "scan failed, please retry"
+- **A candidate-load failure was misreported as "no candidates"** - it now explicitly says loading failed
+
+**Improved**
+
+- **Elapsed / estimated time in the scan progress** - the progress line now shows "elapsed mm:ss · about mm:ss remaining", estimated from the actual rate and refreshed every second
+- **Persistent queue hint inside the dialog** - while queued it shows "queued: the scan for 'Person X' will start automatically when the current scan finishes" (previously only a one-off toast)
+
+</details>
+
+<details>
+<summary>Previous release v0.7.4 (2026-11-18) summary</summary>
 
 **Fixed**
 
@@ -21,6 +62,8 @@ files**.
 
 - **The "User guide" dialog is now an outline** - chapter list on the left, content on the right; titles unified with menu entries; the first-run dialog is titled "First-run guide"; the license dialog gained a Chinese reference tab (unofficial translation)
 - **Advanced search field hints** - short explanations beside the camera→rating inputs (person name or number, GPS accepts place names, >/&gt;= comparisons supported)
+
+</details>
 
 <details>
 <summary>Previous release v0.7.3 (2026-11-18) summary</summary>

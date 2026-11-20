@@ -109,6 +109,10 @@ class LibraryBridge(QObject):
     # PySide6 6.8 跨线程 emit → QML 转换不可靠（全库扫/锚点扫后候选均不
     # 回填、弹窗空白；dev 6.11 正常），与全桥其余信号的 JSON str 模式统一
     dupCandidatesReady = Signal(str)
+    # 0.7.4b：排队锚点变化（pid，0=清空）——QML 弹窗排队提示的响应式依赖
+    # （普通方法调用不进绑定依赖图，visible 绑定读 dupQueuedAnchor() 不会
+    # 因入队/出队重估——真机表现就是提示永不出现）
+    dupQueuedChanged = Signal(int)
 
     def __init__(self, db_path: str, parent=None):
         super().__init__(parent)
@@ -188,6 +192,12 @@ class LibraryBridge(QObject):
         # 0.6.28：候选加载单飞行期间的新请求缓存——此前直接丢弃，导致
         # 合并/忽略后紧接着的 reload 静默失效（行不消失、计数不更新）
         self._dup_cand_pending = None
+        # 0.7.4b：锚点扫描在单飞行互斥期被拒后排队——此前直接 return
+        # "running" 且 QML 忽略返回值照样开弹窗，弹窗展示的是上一次扫描的
+        # 进度；上次扫描完成时 toast 报其结果数、reload 却按本次锚点过滤，
+        # 锚点扫描从未执行 → 「提示有 N 组、列表空」（真机反馈"偶尔可以"
+        # = 上次候选恰好含与锚点相关的对）。排队后由当前扫描完成时自动补跑。
+        self._dup_anchor_pending: int | None = None
         self._tree_expanded: set[str] = set()
         self._dir_cache: dict[str, str] | None = None
         self._direct_cache: set[str] | None = None
@@ -992,12 +1002,20 @@ class LibraryBridge(QObject):
         0.6.25 补25：算该人物 vs **全部其他人物**代表脸（O(N) 余弦，
         含已命名——整理后期未命名人物所剩无几，仅比未命名必然无结果），
         不清其他候选对；结果同样落 person_dup_candidates，信号/弹窗
-        复用全库扫描链路。单飞行与全库扫描互斥。"""
+        复用全库扫描链路。单飞行与全库扫描互斥。
+        0.7.4b：互斥期不再静默拒绝——排队（返回 "queued"），当前扫描
+        完成后自动补跑锚点扫描（_kick_pending_anchor）。"""
         with self._dup_lock:
             if self._dup_scan_running:
-                return "running"
-            self._dup_scan_running = True
-            self._dup_scan_progress = (0, 0)   # 0.6.28 弹窗晚开也要从 0 显示
+                self._dup_anchor_pending = int(person_id)
+                queued = True
+            else:
+                queued = False
+                self._dup_scan_running = True
+                self._dup_scan_progress = (0, 0)   # 0.6.28 弹窗晚开也要从 0 显示
+        if queued:
+            self.dupQueuedChanged.emit(int(person_id))
+            return "queued"
         threading.Thread(target=self._dup_anchor_worker,
                          args=(int(person_id),), daemon=True,
                          name="dup-persons-anchor").start()
@@ -1013,6 +1031,38 @@ class LibraryBridge(QObject):
             with self._dup_lock:
                 self._dup_scan_running = False
         self.dupScanFinished.emit(n)
+        # 0.7.4b：互斥期排队的锚点请求自动补跑（若有）
+        self._kick_pending_anchor()
+
+    @Slot(result=int)
+    def dupQueuedAnchor(self) -> int:
+        """0.7.4b：当前排队的锚点人物 id（无排队返回 0）——供弹窗显示
+        「排队中」状态（内存读取，零数据库开销，可随进度信号频繁查）。"""
+        with self._dup_lock:
+            return int(self._dup_anchor_pending or 0)
+
+    def _take_pending_anchor(self) -> int | None:
+        """0.7.4b：取出排队的锚点请求并置扫描位（原子决策）。
+
+        当前仍在扫描则不取（保留排队，由该次扫描完成时再取）；
+        无排队或扫描中均返回 None。"""
+        with self._dup_lock:
+            if self._dup_anchor_pending is None or self._dup_scan_running:
+                return None
+            pid = self._dup_anchor_pending
+            self._dup_anchor_pending = None
+            self._dup_scan_running = True
+            self._dup_scan_progress = (0, 0)
+            return pid
+
+    def _kick_pending_anchor(self) -> None:
+        """0.7.4b：扫描完成信号发出后补跑排队的锚点扫描（若有）。"""
+        pid = self._take_pending_anchor()
+        if pid is not None:
+            self.dupQueuedChanged.emit(0)   # 排队已出队，弹窗撤提示
+            threading.Thread(target=self._dup_anchor_worker,
+                             args=(pid,), daemon=True,
+                             name="dup-persons-anchor").start()
 
     def _dup_scan_anchor(self, anchor_pid: int) -> int:
         """锚点扫描核心（同步版，测试直调）。返回新增候选对数。
@@ -1142,6 +1192,8 @@ class LibraryBridge(QObject):
             with self._dup_lock:
                 self._dup_scan_running = False
         self.dupScanFinished.emit(n)
+        # 0.7.4b：互斥期排队的锚点请求自动补跑（若有）
+        self._kick_pending_anchor()
 
     def _dup_scan_now(self, top_n: int = 0) -> int:
         """全对全余弦扫描并写候选对表，返回候选对数（同步版，测试直调）。
@@ -1190,7 +1242,9 @@ class LibraryBridge(QObject):
                 conn.commit()
                 return 0
             m = np.stack([desc[p] for p in pids])
-            m = m / np.linalg.norm(m, axis=1, keepdims=True)
+            # 0.7.4b：范数加 1e-9 下限（与锚点扫描 flush 同口径）——损坏的
+            # 全零描述子此前会产生 NaN 行（NaN 不进候选但浪费计算）
+            m = m / np.maximum(np.linalg.norm(m, axis=1, keepdims=True), 1e-9)
             # 0.6.25 补25：矩阵分块计算，逐块上报"已对比 N / 总数"计数进度
             #（结果与一次性 m @ m.T 等价：每块仍与全库比，行偏移归一）
             upper = float(self.faceClusterThreshold())

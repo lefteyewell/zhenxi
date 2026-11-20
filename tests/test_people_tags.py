@@ -446,6 +446,34 @@ class TestDupPersons(_TempDB):
         # 锚点无可用代表脸 → -1
         self.assertEqual(self.bridge._dup_scan_anchor(999999), -1)
 
+    def test_anchor_scan_queued_when_busy(self):
+        """0.7.4b：扫描互斥期锚点请求排队而非静默拒绝——此前直接
+        return "running" 且 QML 忽略返回值照样开弹窗，弹窗展示上一扫的
+        进度、toast 报上一扫的结果数而本次锚点列表空（真机反馈
+        "提示有若干结果却显示不出，偶尔可以"）。"""
+        pa = self._add_person_with_faces(self._v(1.0), self.pids[:2])
+        pb = self._add_person_with_faces(self._v(0.42), self.pids[:2])
+        # 互斥期：排队并返回 "queued"，不启动新线程
+        self.bridge._dup_scan_running = True
+        try:
+            self.assertEqual(self.bridge.dupScanFor(pa), "queued")
+            self.assertEqual(self.bridge._dup_anchor_pending, pa)
+            # 排队查询槽（弹窗排队提示用）
+            self.assertEqual(self.bridge.dupQueuedAnchor(), pa)
+            # 仍在扫描中：不取出，保留排队
+            self.assertIsNone(self.bridge._take_pending_anchor())
+            self.assertEqual(self.bridge._dup_anchor_pending, pa)
+        finally:
+            self.bridge._dup_scan_running = False
+        # 空闲：原子取出并置扫描位（供补跑线程使用）
+        self.assertEqual(self.bridge._take_pending_anchor(), pa)
+        self.assertIsNone(self.bridge._dup_anchor_pending)
+        self.assertEqual(self.bridge.dupQueuedAnchor(), 0)
+        self.assertTrue(self.bridge._dup_scan_running)
+        self.bridge._dup_scan_running = False
+        # 补跑确实按锚点产出候选（同步直调核心）
+        self.assertEqual(self.bridge._dup_scan_anchor(pb), 1)
+
     def test_merge_people_cleans_candidates(self):
         """0.6.25 补24：人物页「合并选中」（mergePeople）同样清理候选对。"""
         pa = self._add_person_with_faces(self._v(1.0), self.pids[:2])
