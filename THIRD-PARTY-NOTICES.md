@@ -65,6 +65,7 @@ aarch64 基础系统，以动态库形式位于 `_internal/` 与 `_internal/gstr
 | 数据 | 来源 | 许可证 | 说明 |
 |---|---|---|---|
 | 繁简变体映射表（`photo_manager/core/zhvar.py`） | Unicode Unihan 数据库（`Unihan_Variants.txt`）+ 少量人工补充对 | **Unicode License**（允许再分发，需保留署名） | 0.5.59 起替代原 zhconv（GPLv2+，已移除）。数据由 `tools/gen_zhvar.py` 从 Unihan 生成，可复现；人工补充对为语言知识整理，未复制任何 GPL 数据。Unicode 许可证全文：https://www.unicode.org/license.txt |
+| 离线地名库（`models/geo/geo.sqlite`） | GeoNames（www.geonames.org，`cities1000` / `admin1CodesASCII` / `countryInfo` / `alternateNames`） | **CC BY 4.0**（允许再分发，需保留署名） | 照片离线逆地理编码数据，由 `tools/build_geo.py` 从 GeoNames 导出生成并叠加显示层修正；中文别名取自 GeoNames alternateNames（含简繁与社区译名），地名显示口径以本程序修正层为准。许可证全文：https://creativecommons.org/licenses/by/4.0/legalcode.zh-Hans 。GeoNames 数据 © GeoNames |
 
 ## 随附 AI 模型
 
