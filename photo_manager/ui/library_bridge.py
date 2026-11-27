@@ -113,6 +113,8 @@ class LibraryBridge(QObject):
     # （普通方法调用不进绑定依赖图，visible 绑定读 dupQueuedAnchor() 不会
     # 因入队/出队重估——真机表现就是提示永不出现）
     dupQueuedChanged = Signal(int)
+    # 0.7.8：球面地图用户自标地名变化（QML 据此刷新显示）
+    mapLabelsChanged = Signal()
 
     def __init__(self, db_path: str, parent=None):
         super().__init__(parent)
@@ -1932,26 +1934,127 @@ class LibraryBridge(QObject):
 
     @Slot(result="QVariant")
     def locations(self) -> list[dict]:
-        """地点列表：按 GPS 坐标聚合（保留一定精度）。"""
+        """地点列表：按 GPS 坐标聚合（3 位精度，与球面地图口径一致）。
+        0.7.8：此前用 2 位导致地点分类 22 项 vs 地图 32 项对不上。
+        0.7.8b：合并用户自标地名（name 优先显示标注），并给出文件夹数。"""
         rows = self.db.conn.execute(
-            "SELECT ROUND(gps_lat, 2), ROUND(gps_lon, 2), COUNT(*) FROM photos"
-            " WHERE status != 'missing' AND gps_lat IS NOT NULL AND gps_lon IS NOT NULL"
+            "SELECT ROUND(gps_lat, 3), ROUND(gps_lon, 3), COUNT(*),"
+            " COUNT(DISTINCT folder_path) FROM photos"
+            " WHERE status != 'missing' AND archived = 0"
+            " AND gps_lat IS NOT NULL AND gps_lon IS NOT NULL"
             " GROUP BY 1, 2 ORDER BY 3 DESC"
         ).fetchall()
-        return [{"lat": r[0], "lon": r[1], "name": f"{r[0]:.2f}, {r[1]:.2f}",
-                 "photoCount": r[2]} for r in rows]
+        labels = {(r[0], r[1]): r[2] for r in self.db.conn.execute(
+            "SELECT lat_key, lon_key, label FROM place_labels").fetchall()}
+        out = []
+        for r in rows:
+            lab = labels.get((r[0], r[1]), "")
+            auto = self._auto_name(r[0], r[1])
+            out.append({"lat": r[0], "lon": r[1],
+                        "name": lab or auto or f"{r[0]:.3f}, {r[1]:.3f}",
+                        "label": lab, "auto": auto,
+                        "photoCount": r[2], "folderCount": r[3]})
+        return out
 
     @Slot(float, float, int, int, result="QVariant")
     def locationPhotos(self, lat: float, lon: float, offset: int = 0,
                        limit: int = 500) -> list[dict]:
-        where = "ROUND(gps_lat,2)=? AND ROUND(gps_lon,2)=?"
+        where = "ROUND(gps_lat,3)=ROUND(?,3) AND ROUND(gps_lon,3)=ROUND(?,3)"
         return self._pack(self._photo_rows(where, (lat, lon), limit, offset))
+
+    @Slot(float, float, int, int, result="QVariant")
+    def mapLocationPhotos(self, lat: float, lon: float, offset: int = 0,
+                          limit: int = 500) -> list[dict]:
+        """球面地图点选：按 3 位精度取该聚合点的照片（地点分类页仍用 2 位）。
+        mapPoints 返回原始坐标（如 39.9042），故这里按 SQL ROUND 对齐，
+        不能依赖调用方先 round（跨语言浮点误差 + 调用方易漏）。"""
+        where = "ROUND(gps_lat,3)=ROUND(?,3) AND ROUND(gps_lon,3)=ROUND(?,3)"
+        return self._pack(self._photo_rows(where, (lat, lon), limit, offset))
+
+    @Slot(float, float, result=int)
+    def mapLocationCount(self, lat: float, lon: float) -> int:
+        return self.db.conn.execute(
+            "SELECT COUNT(*) FROM photos WHERE status != 'missing' AND archived = 0"
+            " AND ROUND(gps_lat,3)=ROUND(?,3) AND ROUND(gps_lon,3)=ROUND(?,3)",
+            (lat, lon),
+        ).fetchone()[0]
+
+    @Slot(result=str)
+    def mapPlaceList(self) -> str:
+        """已标地点列表（用户自标地名 + 照片数 + 文件夹数），供地图页地点面板显示。
+        JSON: [[lat, lon, label, photoCount, folderCount], ...] 按照片数降序。"""
+        rows = self.db.conn.execute(
+            "SELECT p.lat_key, p.lon_key, p.label, COUNT(ph.id),"
+            " COUNT(DISTINCT ph.folder_path) "
+            "FROM place_labels p LEFT JOIN photos ph ON "
+            " ROUND(ph.gps_lat,3)=ROUND(p.lat_key,3)"
+            " AND ROUND(ph.gps_lon,3)=ROUND(p.lon_key,3)"
+            " AND ph.status != 'missing' AND ph.archived = 0 "
+            "GROUP BY p.lat_key, p.lon_key, p.label "
+            "HAVING COUNT(ph.id) > 0 "
+            "ORDER BY COUNT(ph.id) DESC, p.label"
+        ).fetchall()
+        return json.dumps([[r[0], r[1], r[2], r[3], r[4]] for r in rows],
+                          ensure_ascii=False)
+
+    @Slot(str, result=str)
+    def mapCoordsStats(self, coords_json: str) -> str:
+        """球面聚合点：按坐标列表统计照片数与文件夹数（口径同 mapCoordsCount）。
+        JSON: {"photos": N, "folders": M}。"""
+        try:
+            coords = json.loads(coords_json)
+        except Exception:
+            coords = []
+        if not coords:
+            return json.dumps({"photos": 0, "folders": 0})
+        where = " OR ".join(
+            ["(ROUND(gps_lat,3)=ROUND(?,3) AND ROUND(gps_lon,3)=ROUND(?,3))"] * len(coords))
+        params = [v for pair in coords for v in pair]
+        r = self.db.conn.execute(
+            "SELECT COUNT(*), COUNT(DISTINCT folder_path) FROM photos"
+            " WHERE status != 'missing' AND archived = 0 AND (" + where + ")",
+            params,
+        ).fetchone()
+        return json.dumps({"photos": r[0], "folders": r[1]})
+
+    @Slot(str, result=int)
+    def mapCoordsCount(self, coords_json: str) -> int:
+        """球面聚合点：按坐标列表统计照片数（coords_json=[[lat,lon],...]）。"""
+        try:
+            coords = json.loads(coords_json)
+        except Exception:
+            return 0
+        if not coords:
+            return 0
+        where = " OR ".join(
+            ["(ROUND(gps_lat,3)=ROUND(?,3) AND ROUND(gps_lon,3)=ROUND(?,3))"] * len(coords))
+        params = [v for pair in coords for v in pair]
+        return self.db.conn.execute(
+            "SELECT COUNT(*) FROM photos WHERE status != 'missing'"
+            " AND archived = 0 AND (" + where + ")",
+            params,
+        ).fetchone()[0]
+
+    @Slot(str, int, int, result="QVariant")
+    def mapCoordsPhotos(self, coords_json: str, offset: int = 0,
+                        limit: int = 500) -> list[dict]:
+        """球面聚合点：按坐标列表取照片（与 mapCoordsCount 同口径）。"""
+        try:
+            coords = json.loads(coords_json)
+        except Exception:
+            return []
+        if not coords:
+            return []
+        where = " OR ".join(
+            ["(ROUND(gps_lat,3)=ROUND(?,3) AND ROUND(gps_lon,3)=ROUND(?,3))"] * len(coords))
+        params = [v for pair in coords for v in pair]
+        return self._pack(self._photo_rows(where, params, limit, offset))
 
     @Slot(float, float, result=int)
     def locationCount(self, lat: float, lon: float) -> int:
         return self.db.conn.execute(
-            "SELECT COUNT(*) FROM photos WHERE status != 'missing' AND"
-            " ROUND(gps_lat,2)=? AND ROUND(gps_lon,2)=?",
+            "SELECT COUNT(*) FROM photos WHERE status != 'missing' AND archived = 0"
+            " AND ROUND(gps_lat,3)=ROUND(?,3) AND ROUND(gps_lon,3)=ROUND(?,3)",
             (lat, lon),
         ).fetchone()[0]
 
@@ -5617,15 +5720,58 @@ class LibraryBridge(QObject):
         threading.Thread(target=worker, daemon=True).start()
         return ""
 
+    def _auto_name(self, lat: float, lon: float) -> str:
+        """离线自动地名：逆编码的城市级结果（不含国家/省层级），失败空串。
+        0.7.8d：GPS 照片点未标注时自动显示此名；用户标注优先于它。"""
+        try:
+            from photo_manager.core.geocode import get_coder
+            return get_coder().reverse_geocode(lat, lon) or ""
+        except Exception as e:  # pragma: no cover - 数据异常兜底
+            log.warning("自动地名生成失败（%s, %s）：%s", lat, lon, e)
+            return ""
+
     @Slot(result="QVariant")
     def mapPoints(self) -> list[dict]:
-        """GPS 散点数据：按坐标聚合，返回 {lat, lon, count} 列表（无瓦片离线散点图）。"""
+        """GPS 散点数据：按坐标聚合，返回 {lat, lon, count, autoName} 列表
+        （无瓦片离线散点图）。autoName 供未标注点显示自动地名。"""
         rows = self.db.conn.execute(
             "SELECT gps_lat, gps_lon, COUNT(*) FROM photos"
-            " WHERE status != 'missing' AND gps_lat IS NOT NULL AND gps_lon IS NOT NULL"
+            " WHERE status != 'missing' AND archived = 0"
+            " AND gps_lat IS NOT NULL AND gps_lon IS NOT NULL"
             " GROUP BY ROUND(gps_lat, 3), ROUND(gps_lon, 3)"
         ).fetchall()
-        return [{"lat": r[0], "lon": r[1], "count": r[2]} for r in rows]
+        return [{"lat": r[0], "lon": r[1], "count": r[2],
+                 "autoName": self._auto_name(r[0], r[1])} for r in rows]
+
+    @Slot(result=str)
+    def mapLabels(self) -> str:
+        """用户自标地名：JSON 字符串 [[lat, lon, label], ...]（无自动地名）。"""
+        rows = self.db.conn.execute(
+            "SELECT lat_key, lon_key, label FROM place_labels ORDER BY lat_key, lon_key"
+        ).fetchall()
+        return json.dumps([[r[0], r[1], r[2]] for r in rows], ensure_ascii=False)
+
+    @Slot(float, float, str, result=bool)
+    def setMapLabel(self, lat: float, lon: float, label: str) -> bool:
+        """写入/删除用户自标地名（空串=删除）；坐标按 3 位小数匹配聚合点。"""
+        lat_k, lon_k = round(float(lat), 3), round(float(lon), 3)
+        name = (label or "").strip()
+        try:
+            if name:
+                self.db.conn.execute(
+                    "INSERT INTO place_labels(lat_key, lon_key, label) VALUES(?,?,?) "
+                    "ON CONFLICT(lat_key, lon_key) DO UPDATE SET label=excluded.label",
+                    (lat_k, lon_k, name),
+                )
+            else:
+                self.db.conn.execute(
+                    "DELETE FROM place_labels WHERE lat_key=? AND lon_key=?", (lat_k, lon_k))
+            self.db.conn.commit()
+            self.mapLabelsChanged.emit()
+            return True
+        except Exception as e:  # pragma: no cover - 磁盘异常兜底
+            log.warning("setMapLabel 失败：%s", e)
+            return False
 
     @Slot(float, float, int, int, result="QVariant")
     def mapPhotos(self, lat: float, lon: float, offset: int = 0,
@@ -5639,7 +5785,7 @@ class LibraryBridge(QObject):
     def mapCount(self) -> int:
         return self.db.conn.execute(
             "SELECT COUNT(*) FROM photos WHERE status != 'missing'"
-            " AND gps_lat IS NOT NULL AND gps_lon IS NOT NULL"
+            " AND archived = 0 AND gps_lat IS NOT NULL AND gps_lon IS NOT NULL"
         ).fetchone()[0]
 
     @Slot(float, float, result=str)

@@ -1580,7 +1580,13 @@ ApplicationWindow {
                     anchors.fill: parent
                     visible: navState.current === 14
                     onLocationClicked: (lat, lon) => {
-                        gallery.loadLocation(lat, lon)
+                        /* 单点入口（兼容） */
+                        gallery.loadMapLocation(lat, lon)
+                        navState.current = 9
+                    }
+                    onCoordsClicked: (coords, label) => {
+                        /* 聚合点：打开整组坐标的照片，不是只有代表点那 1~2 张 */
+                        gallery.loadMapCoords(coords, label)
                         navState.current = 9
                     }
                 }
@@ -1697,15 +1703,18 @@ ApplicationWindow {
                 function showTrash() { navState.current = 13; trashPage.refresh() }
                 function loadSearch(q) { navState.current = 0; gallery.search(q) }
 
-                /* 返回键：按图库当前 backTarget 回到来源页（无来源则回全部） */
+                /* 返回键：按图库当前 backTarget 回到来源页（无来源则回全部）。
+                   0.7.8d：地点分类页与地图页返回时不刷新——精确保留离开时的
+                   滚动位置 / 地球仪视角（地图仅静默刷新数据 reloadKeepView） */
                 function navBack() {
                     var t = gallery.backTarget
                     if (t === 1) showEvents()
                     else if (t === 3) { navState.current = 3; showCategory("people") }
-                    else if (t === 4) { navState.current = 4; showCategory("locations") }
+                    else if (t === 4) navState.current = 4
                     else if (t === 5) { navState.current = 5; showCategory("devices") }
                     else if (t === 6) { navState.current = 6; showCategory("tags") }
                     else if (t === 11) showTimeline()
+                    else if (t === 14) { navState.current = 14; mapPage.reloadKeepView() }
                     else if (t === 17) showAlbums()
                     else showAll()
                 }
@@ -1736,11 +1745,12 @@ ApplicationWindow {
 
             /* 右：信息面板
                0.7.3：人物页多选期间被「已选人物」面板顶替（退出选择自动恢复）；
-               两者宽度口径一致，切换不跳动 */
+               两者宽度口径一致，切换不跳动
+               0.7.8c：地图页被「已标地点」面板顶替（同宽，切换不跳动） */
             InfoPanel {
                 id: infoPanel
                 objectName: "infoPanel"
-                visible: !personSelPanel.visible
+                visible: !personSelPanel.visible && !mapPlacePanel.visible
                 Layout.preferredWidth: ThemeController ? ThemeController.infoWidth : Theme.infoWidth
                 Layout.minimumWidth: 220
                 Layout.fillHeight: true
@@ -1793,6 +1803,28 @@ ApplicationWindow {
                 Layout.bottomMargin: Theme.spacingSmall
                 Layout.rightMargin: Theme.spacingSmall
                 page: peoplePage
+            }
+
+            /* 0.7.8c：地图页的右栏「已标地点」面板——顶替照片信息栏
+               （信息栏在地图页无意义）。列出用户自标地名，点击定位到
+               该坐标并打开整组照片。宽度口径与信息栏一致，切换不跳动。
+               仅地图页显示：选择状态等在页面间保留的语义与 personSelPanel 同理 */
+            MapPlacePanel {
+                id: mapPlacePanel
+                objectName: "mapPlacePanel"
+                visible: navState.current === 14
+                Layout.preferredWidth: ThemeController ? ThemeController.infoWidth : Theme.infoWidth
+                Layout.minimumWidth: 220
+                Layout.fillHeight: true
+                Layout.topMargin: Theme.spacingSmall
+                Layout.bottomMargin: Theme.spacingSmall
+                Layout.rightMargin: Theme.spacingSmall
+                onPlaceClicked: (lat, lon, label) => mapPage.focusPlace(lat, lon, label)
+                /* 0.7.8d：面板随地图视野过滤（旋转/缩放自动增删行） */
+                Connections {
+                    target: mapPage
+                    function onVisibleKeysChanged(keys) { mapPlacePanel.setKeys(keys) }
+                }
             }
         }
 

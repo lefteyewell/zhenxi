@@ -345,7 +345,9 @@ Dialog {
                     RowLayout {
                         anchors.fill: parent
                         anchors.leftMargin: Theme.spacingMedium
-                        anchors.rightMargin: Theme.spacingMedium
+                        /* 0.7.8c：右边距让开常驻滚动条（PMScrollBar 厚 12px）——
+                           此前合并/忽略按钮右缘被滚动条盖住 */
+                        anchors.rightMargin: Theme.spacingMedium + 14
                         spacing: Theme.spacingMedium
 
                         /* 左侧人物头像（代表脸缓存裁剪，无需等 HQ） */

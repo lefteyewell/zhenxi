@@ -38,6 +38,33 @@ log = logging.getLogger(__name__)
 
 _EARTH_R_KM = 6371.0088
 
+# 显示层地名映射（0.7.8）：GeoNames 是国际数据集，个别国家/地区名与
+# 中国官方表述不一致。只在**显示**时替换，绝不改 geo.sqlite 原始数据，
+# 数据集升级也不会被覆盖。键为 GeoNames 原始名（含大小写变体）。
+_DISPLAY_NAME_MAP = {
+    "Taiwan": "中国台湾",
+    "taiwan": "中国台湾",
+    "TAIWAN": "中国台湾",
+    "Taiwan, China": "中国台湾",
+    "Republic of China": "中国台湾",
+    "Hong Kong": "中国香港",
+    "hong kong": "中国香港",
+    "Hong Kong SAR": "中国香港",
+    "Hong Kong SAR, China": "中国香港",
+    "Macao": "中国澳门",
+    "Macau": "中国澳门",
+    "macao": "中国澳门",
+    "Macao SAR": "中国澳门",
+    "Macao SAR, China": "中国澳门",
+}
+
+
+def localized_name(name: str | None) -> str | None:
+    """把 GeoNames 原始地名转为本地化显示名（未命中原样返回）。"""
+    if not name:
+        return name
+    return _DISPLAY_NAME_MAP.get(name, name)
+
 
 def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     p1 = math.radians(lat1)
@@ -142,19 +169,16 @@ class GeoCoder:
         return self._format(best, best_d) if best else None
 
     def _format(self, c, dist_km: float) -> str:
-        # 优先用中文别名（若有），否则 ascii 名
+        # 0.7.8b：只显示城市或比城市更小的地名（用户要求：不显示国家/地区层级）。
+        # cities1000 数据本身即城市/城镇/村庄级，取其名（中文别名优先）即可；
+        # admin1/国家层级一律不再输出，争议表述映射只在城市名命中时仍有意义。
         alias = self._alias_of(c["geoname_id"])
-        name = alias or c["ascii_name"] or c["name"] or ""
-        parts = [name]
-        if c["admin1"] and c["admin1"] != name:
-            parts.append(c["admin1"])
-        if c["country"]:
-            cname = self._country_name(c["country"])
-            if cname and cname != name:
-                parts.append(cname)
-        s = "（".join(parts) + "）" if len(parts) > 1 else name
-        # 距离过远（>50km）时标注，提示仅为最近参考
-        if dist_km and dist_km > 50:
+        name = localized_name(alias or c["ascii_name"] or c["name"] or "")
+        s = name
+        # 距离过远（>5km）时标注，提示仅为最近参考
+        # （0.7.8d：50→5km。自动地名取"最近地理条目"，照片可能在名字所在
+        # 位置数公里外拍摄——如城区内取到 1~2km 外的村镇条目，需要提示）
+        if dist_km and dist_km > 5:
             s += f" · 约{dist_km:.0f}km"
         return s
 
@@ -222,6 +246,13 @@ class GeoCoder:
                 "SELECT lat, lon FROM places WHERE admin1 = ? OR admin1 LIKE ?",
                 (admin1, admin1),
             )
+            pts += [(r["lat"], r["lon"]) for r in rows]
+
+        # 3b) 省级英文直接匹配（aliases 只有中文别名，英文输入如
+        #     Xizang / Guangdong 走这里；0.7.8d 之前英文省名搜索无效）
+        if not pts:
+            rows = self._q(
+                "SELECT lat, lon FROM places WHERE admin1 = ? LIMIT 5000", (q,))
             pts += [(r["lat"], r["lon"]) for r in rows]
 
         # 4) 国家级

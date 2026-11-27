@@ -191,6 +191,17 @@ Item {
         }
     }
 
+    /* 0.7.8b：地点标注地名（与地图页同库 place_labels，两端互通） */
+    property var _labelCoords: [0, 0]
+    property string _suggestedName: ""
+
+    function openLabelDialog(lat, lon, currentLabel) {
+        _labelCoords = [lat, lon]
+        _suggestedName = LibraryBridge.reverseGeocode(lat, lon) || ""
+        labelField.text = currentLabel || ""
+        labelDialog.open()
+    }
+
     function _icon() {
         if (kind === "people") return "◎"
         if (kind === "locations") return "📍"
@@ -507,7 +518,8 @@ Item {
                             font.family: Theme.fontFamily
                             font.pixelSize: 12
                             color: Theme.textDim
-                            Layout.rightMargin: (kind === "people" || kind === "tags") ? 200 : 0
+                            Layout.rightMargin: (kind === "people" || kind === "tags"
+                                                 || kind === "locations") ? 200 : 0
                         }
                     }
 
@@ -549,7 +561,7 @@ Item {
                         anchors.rightMargin: Theme.spacingSmall
                         anchors.verticalCenter: parent.verticalCenter
                         spacing: 6
-                        visible: kind === "people" || kind === "tags"
+                        visible: kind === "people" || kind === "tags" || kind === "locations"
                         z: 2
 
                         PMButton {
@@ -587,6 +599,18 @@ Item {
                             height: 28
                             visible: kind === "tags"
                             onClicked: root.mergeRequested(0, model.name)
+                        }
+                        /* 0.7.8b：地点行标注地名（与地图页互通同一 place_labels） */
+                        PMButton {
+                            objectName: "locLabelBtn"
+                            tooltip: I18n.tr("给该坐标标注地名（可一键采用离线数据的建议名）；与球面地图共用标注")
+                            text: model.label && model.label !== ""
+                                  ? I18n.tr("≡ 改地名") : I18n.tr("标注地名")
+                            width: 92
+                            height: 28
+                            visible: kind === "locations"
+                            onClicked: root.openLabelDialog(model.lat, model.lon,
+                                                            model.label || "")
                         }
                     }
                 }
@@ -778,6 +802,98 @@ Item {
                 font.family: Theme.fontFamily
                 font.pixelSize: 13
                 color: Theme.textDim
+            }
+        }
+    }
+
+    /* 地点标注地名弹窗（0.7.8b）：与地图页同一 place_labels，保存后刷新列表。
+       Popup contentItem 必须 ColumnLayout（项目既有坑） */
+    Popup {
+        id: labelDialog
+        objectName: "catLabelDialog"
+        modal: true
+        closePolicy: Popup.CloseOnEscape
+        width: Math.min(400, root.width - 40)
+        x: (root.width - width) / 2
+        y: (root.height - height) / 2
+        padding: Theme.spacingMedium
+        background: Rectangle {
+            radius: Theme.radiusLarge
+            color: Theme.surface
+            border.width: 1
+            border.color: Theme.divider
+        }
+        contentItem: ColumnLayout {
+            spacing: Theme.spacingMedium
+            Text {
+                text: I18n.tr("标注地名")
+                font.family: Theme.fontFamily
+                font.pixelSize: 15
+                font.weight: Font.DemiBold
+                color: Theme.text
+            }
+            Text {
+                Layout.fillWidth: true
+                text: I18n.tr("只有你确认的名字才会显示；留空则删除标注。")
+                font.family: Theme.fontFamily
+                font.pixelSize: 12
+                color: Theme.textDim
+                wrapMode: Text.Wrap
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.spacingSmall
+                Text {
+                    Layout.fillWidth: true
+                    text: root._suggestedName !== ""
+                          ? I18n.tr("建议：") + root._suggestedName
+                          : I18n.tr("无可用的建议地名")
+                    font.family: Theme.fontFamily
+                    font.pixelSize: 12
+                    color: root._suggestedName !== "" ? Theme.accent : Theme.textDim
+                    wrapMode: Text.Wrap
+                }
+                PMButton {
+                    objectName: "catLabelAdoptBtn"
+                    text: I18n.tr("采用")
+                    height: 28
+                    enabled: root._suggestedName !== ""
+                    tooltip: I18n.tr("采用建议名作为我的标注")
+                    onClicked: labelField.text = root._suggestedName
+                }
+            }
+            TextField {
+                id: labelField
+                objectName: "catLabelField"
+                Layout.fillWidth: true
+                placeholderText: I18n.tr("输入地名，如：老家的院子")
+                font.family: Theme.fontFamily
+                font.pixelSize: 13
+                color: Theme.text
+                onAccepted: catLabelSaveBtn.clicked()
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.spacingSmall
+                Item { Layout.fillWidth: true }
+                PMButton {
+                    text: I18n.tr("取消")
+                    height: 30
+                    onClicked: labelDialog.close()
+                }
+                PMButton {
+                    id: catLabelSaveBtn
+                    objectName: "catLabelSaveBtn"
+                    text: I18n.tr("保存")
+                    height: 30
+                    onClicked: {
+                        LibraryBridge.setMapLabel(root._labelCoords[0],
+                                                  root._labelCoords[1],
+                                                  labelField.text)
+                        labelDialog.close()
+                        root.refresh()
+                    }
+                }
             }
         }
     }

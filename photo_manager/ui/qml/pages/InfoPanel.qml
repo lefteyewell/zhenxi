@@ -70,6 +70,10 @@ Rectangle {
             refreshTags([])
             refreshFaces(-1)
             previewImage.source = ""
+            /* 0.7.8c：必须一并清空大图源——此前 fullSource 残留上一张照片，
+               无选中时点击空白预览区会弹出「最近选中的照片」 */
+            fullSource = ""
+            previewHint.visible = false
             return
         }
         currentId = d.id
@@ -417,8 +421,11 @@ Rectangle {
             }
             MouseArea {
                 anchors.fill: parent
+                /* 0.7.8c：无选中照片时彻底禁点（双保险，见 showDetail 清空分支） */
+                enabled: root.currentId >= 0
                 cursorShape: Qt.PointingHandCursor
                 onClicked: {
+                    if (root.currentId < 0) return
                     /* 0.5.51：RAW/HEIC/AVIF 等 Qt 解不了的格式经 photoViewUrl
                        走解码预览（原直传 fullUrl → 大图空白）；视频走播放器 */
                     if (root.currentMediaType === "video") {

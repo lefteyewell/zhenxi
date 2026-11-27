@@ -223,6 +223,15 @@ CREATE TABLE IF NOT EXISTS livp_sources (
     photo_path  TEXT NOT NULL DEFAULT '',
     video_path  TEXT NOT NULL DEFAULT ''
 );
+
+-- 球面地图用户自标地名（0.7.8）：按聚合坐标（round 3 位）存用户手写的名字，
+-- 不自动写 GeoNames 名称；随数据库备份/恢复走。空名称=删除标注。
+CREATE TABLE IF NOT EXISTS place_labels (
+    lat_key  REAL NOT NULL,
+    lon_key  REAL NOT NULL,
+    label    TEXT NOT NULL,
+    PRIMARY KEY (lat_key, lon_key)
+);
 """
 
 

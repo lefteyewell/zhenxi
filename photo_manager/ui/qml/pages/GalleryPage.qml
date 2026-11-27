@@ -118,6 +118,7 @@ Item {
     property var _filterValue: ""
     property real _filterLat: 0
     property real _filterLon: 0
+    property string _filterCoords: "[]"   // 球面聚合点：整组坐标 JSON
     property int backTarget: 0
 
     /* 缩略图单元格尺寸：由 ThemeController.thumbSize 持久化控制（ACDsee 风格的可调缩略图） */
@@ -367,6 +368,10 @@ Item {
             arr = LibraryBridge.personPhotos(_filterValue, _loaded, 500)
         else if (_mode === "location")
             arr = LibraryBridge.locationPhotos(_filterLat, _filterLon, _loaded, 500)
+        else if (_mode === "mapLocation")
+            arr = LibraryBridge.mapLocationPhotos(_filterLat, _filterLon, _loaded, 500)
+        else if (_mode === "mapCoords")
+            arr = LibraryBridge.mapCoordsPhotos(_filterCoords, _loaded, 500)
         else if (_mode === "device")
             arr = LibraryBridge.devicePhotos(_filterValue, _loaded, 500)
         else if (_mode === "tag")
@@ -471,13 +476,42 @@ Item {
     }
 
     function loadLocation(lat, lon) {
-        root._setTitle("place", lat.toFixed(2) + ", " + lon.toFixed(2))
+        root._setTitle("place", lat.toFixed(3) + ", " + lon.toFixed(3))
         _mode = "location"
         _filterLat = lat
         _filterLon = lon
         currentEventId = -1
         totalCount = LibraryBridge.locationCount(lat, lon)
         backTarget = 4
+        _reset()
+        _fetchMore()
+    }
+
+    /* 球面地图点选专用：3 位精度（与地图聚合点一致）+ 返回地图页。
+       地点分类页仍走 loadLocation（2 位粗粒度），两者不可混用。 */
+    function loadMapLocation(lat, lon) {
+        root._setTitle("place", lat.toFixed(3) + ", " + lon.toFixed(3))
+        _mode = "mapLocation"
+        _filterLat = lat
+        _filterLon = lon
+        currentEventId = -1
+        totalCount = LibraryBridge.mapLocationCount(lat, lon)
+        backTarget = 14
+        _reset()
+        _fetchMore()
+    }
+
+    /* 球面聚合点：一个屏幕点代表多个坐标，打开整组照片（否则只有代表点 1~2 张）。 */
+    function loadMapCoords(coords, label) {
+        root._setTitle("place", label || I18n.tr("地图位置"))
+        _mode = "mapCoords"
+        var arr = []
+        for (var i = 0; i < coords.length; ++i)
+            arr.push([coords[i].lat, coords[i].lon])
+        _filterCoords = JSON.stringify(arr)
+        currentEventId = -1
+        totalCount = LibraryBridge.mapCoordsCount(_filterCoords)
+        backTarget = 14
         _reset()
         _fetchMore()
     }
@@ -701,6 +735,8 @@ Item {
         else if (_mode === "dir") loadDir(_filterValue)
         else if (_mode === "person") loadPerson(_filterValue)
         else if (_mode === "location") loadLocation(_filterLat, _filterLon)
+        else if (_mode === "mapLocation") loadMapLocation(_filterLat, _filterLon)
+        else if (_mode === "mapCoords") loadMapCoords(JSON.parse(_filterCoords), "")
         else if (_mode === "device") loadDevice(_filterValue)
         else if (_mode === "tag") loadTag(_filterValue)
         else if (_mode === "month") loadDateMonth(_filterValue)

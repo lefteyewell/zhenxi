@@ -5,16 +5,40 @@ EXIF / folders / arbitrary combinations), thumbnails and full-size viewing,
 batch export at common resolutions — **the app never deletes or modifies your original
 files**.
 
-## Latest release v0.7.7 (2026-11-20)
+## Latest release v0.7.8 (2026-11-27)
 
 > 📥 Download: [Releases page](https://github.com/lefteyewell/zhenxi/releases) ｜
 > 📋 All version changes: [CHANGELOG.md](CHANGELOG.md)
+
+**New**
+
+- **Automatic GPS place names** - photos with GPS now show a city-level place name automatically (no country/province); manual labels always take priority. Place rows in category browsing can also be labeled/renamed directly
+- **"Labeled places" side panel** - the map page's right panel now lists labeled places (with photo/folder counts) and updates with the current view of the globe
+- **Chinese names for places in China** - about 5,000 Chinese place names added from the offline gazetteer (incl. Hong Kong, Macao and Taiwan, China)
+
+**Fixed**
+
+- **Some place entries showed no photos** - archived photos were still counted in place/map totals; counts now match the photo list
+- **Selected marker drifted after rotating the globe** - selection is now tracked by coordinates
+- **Clicking the empty preview area opened the previously viewed photo** - now disabled
+- **Scrollbar covered the merge button in the "similar persons" dialog** - fixed
+
+**Improved**
+
+- **Precise return from place/map photo views** - category scrolling position and map viewpoint/zoom/selection are preserved
+- **Higher map zoom limit** - dense GPS points are easier to tell apart; the gazetteer now follows China's official naming (Xizang; South Tibet under Xizang, China; "Hong Kong, China / Macao, China")
+- **English UI completion** - 15 missing translations added, 88 obsolete entries removed
+
+<details>
+<summary>Previous release v0.7.7 (2026-11-20) summary</summary>
 
 **Changed**
 
 - **"Find likely duplicates" now requires exactly 1 person checked** - the people-page button is disabled (with a hint) when nothing or multiple people are checked ("click Select and check 1 person first" / "only 1 person can be checked for duplicate search"); background scanning, closing the dialog without interrupting, and automatic queueing are unchanged
 - **Library-wide scan entry removed** - the "Scan all" button inside the dialog and the scan-when-nothing-checked entry are gone; duplicate search is per-person only. "Show all" merely clears the person filter and never starts a scan
 - **Help and hint texts updated** - help now states when the button is available; the empty-list hint guides users to check 1 person first
+
+</details>
 
 <details>
 <summary>Previous release v0.7.6 (2026-11-19) summary</summary>

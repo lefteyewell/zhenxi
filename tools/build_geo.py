@@ -47,16 +47,95 @@ DB_PATH = os.path.join(GEO, "geo.sqlite")
 
 UA = {"User-Agent": "photo-manager build_geo/1.0 (+offline geocoder)"}
 
+# 中文名补全的 alternateNames 数据包：中国大陆 + 港澳 + 台湾 + 印度
+# （印度包用于藏南 34 行——它们源自 IN 数据集，中文名如「达旺」在其中）
+ZH_ALT_CC = ("CN", "TW", "HK", "MO", "IN")
+
 
 def _fetch(url: str, dest: str) -> None:
+    import time
     if os.path.exists(dest) and os.path.getsize(dest) > 0:
         print(f"  · 复用已下载：{os.path.basename(dest)}")
         return
     print(f"  · 下载 {url}")
-    req = urllib.request.Request(url, headers=UA)
-    with urllib.request.urlopen(req, timeout=60) as r, open(dest, "wb") as f:
-        f.write(r.read())
-    print(f"    完成 {os.path.basename(dest)} ({os.path.getsize(dest)} 字节)")
+    last = None
+    for attempt in range(4):  # 代理偶发 502，重试 3 次
+        if attempt:
+            time.sleep(3 * attempt)
+        try:
+            req = urllib.request.Request(url, headers=UA)
+            with urllib.request.urlopen(req, timeout=60) as r, open(dest, "wb") as f:
+                f.write(r.read())
+            print(f"    完成 {os.path.basename(dest)} ({os.path.getsize(dest)} 字节)")
+            return
+        except Exception as e:  # noqa
+            last = e
+            print(f"    第 {attempt + 1} 次失败：{e}")
+    raise last
+
+
+def add_zh_alternates(conn: sqlite3.Connection) -> int:
+    """从 GeoNames alternateNames（按国家打包，lang=zh）补全中文地名。
+
+    cities1000 只有英文/本地名，内置中文别名仅精选 ~200 条，覆盖不了全部
+    中国地点（如中小城市、藏南城镇），未覆盖的地点逆编码会显示英文。
+    这里按国家下载 alternateNames zip，为每个 geoname_id 挑一个最佳中文名
+    （优先正式名 → 简称 → 最短名，剔除历史名），插入 aliases(kind='city')。
+    逆编码 _alias_of 查 kind IN ('city','landmark') 即自动命中中文。
+    幂等：已存在的 (geoname_id, alias) 不重复插入。"""
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_aliases_gid ON aliases(geoname_id)")
+    ids = {r[0] for r in conn.execute("SELECT geoname_id FROM places")}
+    have = {(r[0], r[1]) for r in conn.execute(
+        "SELECT geoname_id, alias FROM aliases WHERE geoname_id > 0")}
+    best: dict[int, tuple] = {}
+    for cc in ZH_ALT_CC:
+        dest = os.path.join(GEO, f"alternates_{cc}.zip")
+        _fetch(f"https://download.geonames.org/export/dump/alternatenames/"
+               f"{cc}.zip", dest)
+        with zipfile.ZipFile(dest) as z:
+            # 包内首个 .txt 是 readme.txt，数据文件与压缩包同名（如 CN.txt）
+            data = [n for n in z.namelist()
+                    if n.lower().endswith(".txt") and "readme" not in n.lower()]
+            with z.open(data[0]) as f, \
+                    io.TextIOWrapper(f, encoding="utf-8", errors="replace") as t:
+                for line in t:
+                    p = line.rstrip("\n").split("\t")
+                    if len(p) < 4:
+                        continue
+                    lang = p[2]
+                    nm = p[3].strip()
+                    # 中文条目：isolanguage 以 zh 开头，或语言未标注但名称含汉字
+                    # （GeoNames 部分中文条目语言列为空，如「虹口」）
+                    has_cjk = any("\u4e00" <= ch <= "\u9fff" for ch in nm)
+                    if not (lang.startswith("zh") or (lang == "" and has_cjk)):
+                        continue
+                    gid = int(p[1])
+                    if gid not in ids:
+                        continue
+                    if len(nm) < 2 or len(nm) > 60:
+                        continue
+                    if len(p) > 7 and p[7] == "1":   # 历史名，不用
+                        continue
+                    pref = len(p) > 4 and p[4] == "1"
+                    short = len(p) > 5 and p[5] == "1"
+                    rank = (0 if lang.startswith("zh") else 1,
+                            0 if pref else 1, 0 if short else 1, len(nm), nm)
+                    cur = best.get(gid)
+                    if cur is None or rank < cur[0]:
+                        best[gid] = (rank, nm)
+    n = 0
+    for gid, (_rank, nm) in best.items():
+        if (gid, nm) in have:
+            continue
+        conn.execute(
+            "INSERT INTO aliases(geoname_id, alias, kind) VALUES(?,?,'city')",
+            (gid, nm))
+        have.add((gid, nm))
+        n += 1
+    conn.commit()
+    print(f"  · 中文名补全：新增 {n} 条")
+    return n
 
 
 def _readlines(path: str):
@@ -78,7 +157,7 @@ CN_PROVINCES = {
     "浙江": "Zhejiang", "安徽": "Anhui", "福建": "Fujian", "江西": "Jiangxi",
     "山东": "Shandong", "河南": "Henan", "湖北": "Hubei", "湖南": "Hunan",
     "广东": "Guangdong", "广西": "Guangxi", "海南": "Hainan", "重庆": "Chongqing",
-    "四川": "Sichuan", "贵州": "Guizhou", "云南": "Yunnan", "西藏": "Tibet",
+    "四川": "Sichuan", "贵州": "Guizhou", "云南": "Yunnan", "西藏": "Xizang",
     "陕西": "Shaanxi", "甘肃": "Gansu", "青海": "Qinghai", "宁夏": "Ningxia",
     "新疆": "Xinjiang", "香港": "Hong Kong", "澳门": "Macau", "台湾": "Taiwan",
 }
@@ -225,6 +304,31 @@ def build():
         conn.execute("INSERT OR IGNORE INTO countries VALUES(?,?)",
                      (code, cname))
 
+    # ---- 中国口径修正（合规硬要求，重建后幂等） ----
+    # GeoNames 原始数据按印方/争议/旧式口径存储，此处逐条改值（保留列结构与省级搜索）：
+    # - 藏南地区（中国主张属西藏自治区）：admin1 'Arunachal Pradesh' / country 'IN'
+    #   → 'Xizang' / 'CN'（当前 34 行，城市行保留，逆编码建议地名不受影响）
+    # - 西藏英文按中国官方口径用 Xizang（admin1CodesASCII 原始名为旧式 'Tibet'）
+    # - 台湾（中国一省）：country 'TW' → 'CN'；admin1 省级名（Taipei/Taiwan/
+    #   Fukien/Takao）保留；中文「台湾」检索走 aliases admin1 路径不受影响
+    # - countries 表删除 TW 国家条目（不再以国家形式存储；英文 'Taiwan' 的
+    #   国家级检索随之失效，属预期取舍）；港澳改官方英文名「…, China」
+    conn.execute(
+        "UPDATE places SET country='CN', admin1='Xizang' "
+        "WHERE admin1 IN ('Arunachal Pradesh', 'Tibet')")
+    conn.execute("UPDATE aliases SET admin1='Xizang' WHERE admin1='Tibet'")
+    conn.execute("UPDATE places SET country='CN' WHERE country='TW'")
+    conn.execute("DELETE FROM countries WHERE code='TW'")
+    conn.execute("UPDATE countries SET name='Hong Kong, China' WHERE code='HK'")
+    conn.execute("UPDATE countries SET name='Macao, China' WHERE code='MO'")
+    conn.commit()
+    n_ard = conn.execute(
+        "SELECT COUNT(*) FROM places WHERE admin1='Arunachal Pradesh'").fetchone()[0]
+    n_tw = conn.execute(
+        "SELECT COUNT(*) FROM places WHERE country='TW'").fetchone()[0]
+    if n_ard or n_tw:
+        raise RuntimeError(f"中国口径修正未生效: Arunachal={n_ard} TW={n_tw}")
+
     # 中文别名：省级
     for zh, ascii1 in CN_PROVINCES.items():
         conn.execute(
@@ -259,6 +363,9 @@ def build():
             "INSERT INTO aliases(geoname_id, alias, kind) VALUES(?,?, 'landmark')",
             (lm_id, zh))
         lm_id -= 1
+
+    # 全量中文名补全（GeoNames alternateNames，lang=zh）
+    add_zh_alternates(conn)
 
     conn.commit()
     cnt = conn.execute("SELECT COUNT(*) FROM places").fetchone()[0]
